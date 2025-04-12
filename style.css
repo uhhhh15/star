@@ -1,0 +1,131 @@
+/* public/extensions/third-party/favorites-plugin/style.css */
+/* Favorites popup styles */
+.favorites-popup-content {
+    padding: 10px;
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.favorites-header h3 {
+    text-align: center;
+    margin: 0 0 10px 0;
+}
+
+.favorites-divider {
+    height: 1px;
+    background-color: #ff3a3a;
+    margin: 10px 0;
+}
+
+.favorites-list {
+    margin: 10px 0;
+}
+
+.favorites-empty {
+    text-align: center;
+    color: #888;
+    padding: 20px;
+}
+
+.favorite-item {
+    border: 1px solid #444;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    padding: 10px;
+    background-color: rgba(0, 0, 0, 0.2);
+    position: relative;
+}
+
+.fav-meta {
+    font-size: 0.8em;
+    color: #aaa;
+    margin-bottom: 5px;
+}
+
+.fav-note {
+    background-color: rgba(255, 255, 0, 0.1);
+    padding: 5px;
+    border-left: 3px solid #ffcc00;
+    margin-bottom: 5px;
+    font-style: italic;
+}
+
+.fav-preview {
+    margin-bottom: 5px;
+    line-height: 1.4;
+}
+
+.fav-preview.deleted {
+    color: #ff3a3a;
+    font-style: italic;
+}
+
+.fav-actions {
+    text-align: right;
+}
+
+.fav-actions i {
+    cursor: pointer;
+    margin-left: 10px;
+    padding: 5px;
+    border-radius: 50%;
+}
+
+.fav-actions i:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.fa-pencil {
+    color: #3a87ff;
+}
+
+.fa-trash {
+    color: #ff3a3a;
+}
+
+.favorites-pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+.favorites-footer {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 15px;
+}
+
+/* Star icon styles */
+.favorite-toggle-icon {
+    cursor: pointer;
+}
+
+.favorite-toggle-icon i.fa-regular {
+    color: #999;
+}
+
+/* 在 style.css 文件中找到或添加 .fav-preview 规则 */
+.fav-preview {
+    margin-bottom: 5px;
+    line-height: 1.4;
+    max-height: 200px; /* 设置一个最大高度，例如 200px */
+    overflow-y: auto;  /* 内容超出时显示垂直滚动条 */
+    word-wrap: break-word; /* 允许长单词或链接换行 */
+    white-space: pre-wrap; /* 保留换行符和空格，并允许自动换行 */
+}
+
+.fav-preview.deleted {
+    color: #ff3a3a;
+    font-style: italic;
+    /* 如果需要，也为 deleted 状态应用 max-height 和 overflow */
+    max-height: 200px;
+    overflow-y: auto;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+}
+
+.favorite-toggle-icon i.fa-solid {
+    color: #ffcc00;
+}
