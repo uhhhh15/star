@@ -1,0 +1,11 @@
+{
+    "display_name": "聊天收藏器",
+    "loading_order": 10,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "uhhhh15",
+    "version": "1.0.0",
+    "homePage": ""
+}
