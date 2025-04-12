@@ -413,7 +413,7 @@ function updateFavoritesPopup() {
         <div id="favorites-popup-content">
             <div class="favorites-header">
                 <h3>${chatName} - ${totalFavorites} 条收藏</h3>
-                ${totalFavorites > 0 ? `<button class="menu_button preview-favorites-btn" title="在新聊天中预览所有收藏的消息">预览收藏</button>` : ''}
+                ${totalFavorites > 0 ? `<button class="menu_button preview-favorites-btn" title="在新聊天中预览所有收藏的消息">预览</button>` : ''}
             </div>
             <div class="favorites-divider"></div>
             <div class="favorites-list">
