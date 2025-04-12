@@ -179,7 +179,7 @@ function updateFavoriteNote(favoriteId, note) {
     console.log(`${pluginName}: updateFavoriteNote - 尝试更新 ID: ${favoriteId} 的备注`);
     const chatMetadata = ensureFavoritesArrayExists();
     if (!chatMetadata || !Array.isArray(chatMetadata.favorites) || !chatMetadata.favorites.length) {
-         console.warn(`${pluginName}: updateFavoriteNote - chatMetadata 无效或 favorites 数组为空`);
+         console.warn(`${pluginName}: updateFavoriteNote - chatMetadata 无效或 收藏夹为空`);
          return;
     }
     const favorite = chatMetadata.favorites.find(fav => fav.id === favoriteId);
