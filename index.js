@@ -34,8 +34,10 @@ import { openGroupChat } from "../../../group-chats.js";
 import {
     uuidv4,
     timestampToMoment,
-    waitUntilCondition, // *** 关键：为优化方案添加导入 ***
+    waitUntilCondition, 
 } from '../../../utils.js';
+
+
 
 // Define plugin folder name (important for consistency)
 const pluginName = 'star'; // 保持文件夹名称一致
@@ -468,13 +470,19 @@ function showFavoritesPopup() {
             );
             console.log(`${pluginName}: Popup instance created successfully.`);
             $(favoritesPopup.content).on('click', function(event) {
+                // ---> 在这里添加第一个日志 <---
+                console.log(`[${pluginName}] Popup content click detected. Target element:`, event.target);
+
                 const target = $(event.target);
+
                 if (target.hasClass('pagination-prev')) {
+                    console.log(`[${pluginName}] Matched .pagination-prev click.`); // 日志：确认分支
                     if (currentPage > 1) {
                         currentPage--;
                         updateFavoritesPopup();
                     }
                 } else if (target.hasClass('pagination-next')) {
+                    console.log(`[${pluginName}] Matched .pagination-next click.`); // 日志：确认分支
                     const chatMetadata = ensureFavoritesArrayExists();
                     const totalFavorites = chatMetadata ? chatMetadata.favorites.length : 0;
                     const totalPages = Math.max(1, Math.ceil(totalFavorites / itemsPerPage));
@@ -484,36 +492,73 @@ function showFavoritesPopup() {
                     }
                 }
                 else if (target.hasClass('preview-favorites-btn')) {
+                    console.log(`[${pluginName}] Matched .preview-favorites-btn click.`); // 日志：确认分支
                     handlePreviewButtonClick(); // 调用预览功能
                     if (favoritesPopup) {
-                        favoritesPopup.hide();
-                        console.log(`${pluginName}: 点击预览按钮，关闭收藏夹弹窗。`);
+                        // favoritesPopup.hide(); // <--- 旧代码，错误
+                        favoritesPopup.completeCancelled(); // <--- 新代码，使用正确的方法关闭
+                        console.log(`${pluginName}: 点击预览按钮，关闭收藏夹弹窗 (使用 completeCancelled)。`);
                     }
                 }
-                // --- 已移除处理 .close-popup 的 else if 分支 ---
-                // else if (target.hasClass('close-popup')) {
-                //     favoritesPopup.hide();
-                // }
-                else if (target.hasClass('clear-invalid')) { // <-- 这个分支仍然保留
-                    handleClearInvalidFavorites();         // <-- 对应的函数调用也保留
+                else if (target.hasClass('clear-invalid')) { // 这个分支在原始代码中仍然存在
+                    console.log(`[${pluginName}] Matched .clear-invalid click.`); // 日志：确认分支
+                    handleClearInvalidFavorites();
                 }
                 else if (target.hasClass('fa-pencil')) {
+                    console.log(`[${pluginName}] Matched .fa-pencil click. Target:`, target[0]); // 日志：确认分支
                     const favItem = target.closest('.favorite-item');
+                    console.log(`[${pluginName}] Pencil: Found parent .favorite-item:`, favItem ? favItem[0] : 'null'); // 日志：确认查找
                     if (favItem && favItem.length) {
                          const favId = favItem.data('fav-id');
-                         handleEditNote(favId);
+                         console.log(`[${pluginName}] Pencil: Extracted favId: ${favId}. Attempting to call handleEditNote...`); // 日志：确认调用
+                         try {
+                            handleEditNote(favId);
+                             console.log(`[${pluginName}] Pencil: handleEditNote call completed without throwing immediate error.`);
+                         } catch(e) {
+                             console.error(`[${pluginName}] Pencil: Error calling handleEditNote:`, e);
+                         }
                     } else {
                          console.warn(`${pluginName}: Clicked edit icon, but couldn't find parent .favorite-item`);
                     }
                 }
+                // ---> 修改这个 else if 分支 <---
                 else if (target.hasClass('fa-trash')) {
+                    // ---> 添加日志：确认进入了分支 <---
+                    console.log(`[${pluginName}] Matched .fa-trash click. Target:`, target[0]);
+
                     const favItem = target.closest('.favorite-item');
+                    // ---> 添加日志：确认找到了父元素 <---
+                    console.log(`[${pluginName}] Trash: Found parent .favorite-item:`, favItem ? favItem[0] : 'null');
+
                     if (favItem && favItem.length) {
-                        const favId = favItem.data('fav-id');
-                        const msgId = favItem.data('msg-id');
-                        handleDeleteFavoriteFromPopup(favId, msgId);
+                         const favId = favItem.data('fav-id');
+                         const msgId = favItem.data('msg-id');
+                         // ---> 添加日志：确认获取了 ID 并准备调用函数 <---
+                         console.log(`[${pluginName}] Trash: Extracted favId: ${favId}, msgId: ${msgId}. Attempting to call handleDeleteFavoriteFromPopup...`);
+                         try {
+                             // 注意：handleDeleteFavoriteFromPopup 是异步的，但我们在这里不 await 它，
+                             // 因为事件处理器通常不设计为等待异步操作完成。
+                             // 我们主要关心的是调用本身是否成功以及是否立即抛出错误。
+                             handleDeleteFavoriteFromPopup(favId, msgId);
+                             console.log(`[${pluginName}] Trash: handleDeleteFavoriteFromPopup call initiated without throwing immediate error.`);
+                         } catch(e) {
+                             // 捕获 handleDeleteFavoriteFromPopup 同步执行部分可能抛出的错误
+                             console.error(`[${pluginName}] Trash: Error calling handleDeleteFavoriteFromPopup:`, e);
+                         }
+
                     } else {
+                         // ---> 确认这个警告是否被打印 <---
                          console.warn(`${pluginName}: Clicked delete icon, but couldn't find parent .favorite-item`);
+                    }
+                }
+                // ---> 添加一个日志，以防以上条件都未匹配 <---
+                else {
+                    // 检查被点击元素本身或其父元素是否是我们关心的某个可交互元素的一部分，
+                    // 避免点击普通文本区域也打印日志。
+                    if (target.closest('.menu_button, .favorite-item, .pagination-prev, .pagination-next, .preview-favorites-btn, .clear-invalid, .fa-pencil, .fa-trash').length === 0) {
+                         // 如果点击的不是任何已知可交互元素或其子元素，则不打印，减少干扰
+                    } else {
+                         console.log(`[${pluginName}] Click did not match any specific handler in the popup. Target element class:`, event.target.className, 'Target element:', event.target);
                     }
                 }
             });
@@ -537,24 +582,51 @@ function showFavoritesPopup() {
 }
 
 /**
- * Handles the deletion of a favorite from the popup
+ * Handles the deletion of a favorite from the popup (with simplified logging)
  * @param {string} favId The favorite ID
  * @param {string} messageId The message ID (mesid string)
  */
 async function handleDeleteFavoriteFromPopup(favId, messageId) {
-    const confirmResult = await callGenericPopup('确定要删除这条收藏吗？', POPUP_TYPE.CONFIRM);
-    if (confirmResult === POPUP_RESULT.YES) {
-        if (removeFavoriteById(favId)) {
-            updateFavoritesPopup();
-            const messageElement = $(`#chat .mes[mesid="${messageId}"]`);
-            if (messageElement.length) {
-                const iconElement = messageElement.find('.favorite-toggle-icon i');
-                if (iconElement.length) {
-                    iconElement.removeClass('fa-solid').addClass('fa-regular');
-                }
-            }
+    // 保留: 确认函数入口及参数
+    console.log(`[${pluginName}] Attempting to delete favorite: favId=${favId}, messageId=${messageId}`);
+
+    try {
+        // 检查常量只在出错时记录
+        if (typeof POPUP_TYPE?.CONFIRM === 'undefined' || typeof POPUP_RESULT?.AFFIRMATIVE === 'undefined') {
+             console.error(`[${pluginName}] Error: POPUP_TYPE.CONFIRM or POPUP_RESULT.AFFIRMATIVE is undefined. Check imports from popup.js.`);
+             return;
         }
-    }
+
+        const confirmResult = await callGenericPopup('确定要删除这条收藏吗？', POPUP_TYPE.CONFIRM);
+
+        if (confirmResult === POPUP_RESULT.AFFIRMATIVE) {
+            const removed = removeFavoriteById(favId);
+
+            if (removed) {
+                // 成功删除后，只执行操作，不打印过多日志
+                updateFavoritesPopup();
+                const messageElement = $(`#chat .mes[mesid="${messageId}"]`);
+                if (messageElement.length) {
+                    const iconElement = messageElement.find('.favorite-toggle-icon i');
+                    if (iconElement.length) {
+                        iconElement.removeClass('fa-solid').addClass('fa-regular');
+                    }
+                }
+                // 可以选择性地保留一个成功提示，或依赖 Toastr
+                // console.log(`[${pluginName}] Favorite ${favId} successfully removed.`);
+            } else {
+                 // 保留: 删除操作本身失败的警告
+                 console.warn(`[${pluginName}] removeFavoriteById('${favId}') returned false. Favorite might not have been found in metadata.`);
+            }
+        } else {
+            // 保留: 用户取消操作的日志
+            console.log(`[${pluginName}] User cancelled favorite deletion (popup result: ${confirmResult}).`);
+        }
+    } catch (error) {
+        // 保留: 捕获整个过程中的意外错误
+        console.error(`[${pluginName}] Error during favorite deletion process (favId: ${favId}):`, error);
+    }   
+    console.log(`[${pluginName}] handleDeleteFavoriteFromPopup finished for favId: ${favId}`);
 }
 
 /**
@@ -675,11 +747,11 @@ function restoreNormalChatUI() {
 
 // --- 新增：触发返回导航的函数 ---
 async function triggerReturnNavigation() {
-    console.log(`${pluginName}: triggerReturnNavigation - Return button clicked.`);
+    console.log(`${pluginName}: triggerReturnNavigation - 返回按钮被点击。`);
     if (!previewState.originalContext) {
-        console.error(`${pluginName}: triggerReturnNavigation - Original context not found! Cannot return.`);
+        console.error(`${pluginName}: triggerReturnNavigation - 未找到原始上下文！无法返回。`);
         toastr.error('无法找到原始聊天上下文，无法返回。');
-        // 即使无法导航，也尝试恢复UI
+        // 即使无法导航，也尝试恢复UI并重置状态
         restoreNormalChatUI();
         previewState.isActive = false;
         previewState.originalContext = null;
@@ -688,64 +760,81 @@ async function triggerReturnNavigation() {
     }
 
     const { characterId, groupId, chatId } = previewState.originalContext;
-    console.log(`${pluginName}: triggerReturnNavigation - Returning to context:`, previewState.originalContext);
-
-    // 清理原始上下文，防止重复点击或其他问题
-    // previewState.originalContext = null; // 移动到 CHAT_CHANGED 处理
+    console.log(`${pluginName}: triggerReturnNavigation - 准备返回至上下文:`, previewState.originalContext);
 
     try {
+        // 显示“正在返回”的提示
         toastr.info('正在返回原聊天...');
+
+        let navigationSuccess = false; // 标记导航是否成功
+
         if (groupId) {
-            // 对于群聊聊天，需要群聊ID和聊天ID
-            console.log(`${pluginName}: Navigating back to Group Chat: groupId=${groupId}, chatId=${chatId}`);
+            // 对于群聊聊天
+            console.log(`${pluginName}: 导航返回至群组聊天: groupId=${groupId}, chatId=${chatId}`);
             await openGroupChat(groupId, chatId);
-        } else if (characterId !== undefined) { // 确保 characterId 存在 (即使是 null 或 0)
-            // 对于角色聊天，只需要聊天ID (文件名)
-             console.log(`${pluginName}: Navigating back to Character Chat: characterId=${characterId}, chatId=${chatId}`);
+            console.log(`${pluginName}: openGroupChat 调用完成 (groupId: ${groupId}, chatId: ${chatId})`);
+            navigationSuccess = true; // 标记成功
+            // --- 新增：返回成功提示 ---
+            toastr.success('已成功返回原群组聊天！', '返回成功', { timeOut: 2000 }); // 显示 2 秒
+
+        } else if (characterId !== undefined) {
+            // 对于角色聊天 (包括 characterId 为 null 或 0 的情况)
+            console.log(`${pluginName}: 导航返回至角色聊天: characterId=${characterId}, chatId=${chatId}`);
+            // 注意：openCharacterChat 只需要 chatId (文件名)
             await openCharacterChat(chatId);
+            console.log(`${pluginName}: openCharacterChat 调用完成 (chatId: ${chatId})`);
+            navigationSuccess = true; // 标记成功
+            // --- 新增：返回成功提示 ---
+            toastr.success('已成功返回原角色聊天！', '返回成功', { timeOut: 2000 }); // 显示 2 秒
+
         } else {
-            console.error(`${pluginName}: triggerReturnNavigation - Invalid original context. Cannot determine navigation type.`);
+            // 无效的原始上下文
+            console.error(`${pluginName}: triggerReturnNavigation - 无效的原始上下文。无法确定导航类型。`);
             toastr.error('无法确定原始聊天类型，无法返回。');
-            restoreNormalChatUI(); // 尝试恢复 UI
+            // 尝试恢复 UI 并重置状态
+            restoreNormalChatUI();
             previewState.isActive = false;
+            previewState.originalContext = null;
+            previewState.previewChatId = null;
         }
-        // 导航成功后，CHAT_CHANGED 事件会触发，那里的处理器会清理UI和状态
+
+        // 导航成功后，CHAT_CHANGED 事件会触发后续的 UI 清理 (handleChatChangeForPreview)
+        // 我们在这里只负责导航本身和成功提示。
+
     } catch (error) {
-        console.error(`${pluginName}: triggerReturnNavigation - Error during navigation back:`, error);
-        toastr.error(`返回原聊天时出错: ${error.message}`);
+        console.error(`${pluginName}: triggerReturnNavigation - 导航返回时出错:`, error);
+        toastr.error(`返回原聊天时出错: ${error.message || '未知错误'}`);
         // 即使导航失败，也尝试恢复UI并重置状态
         restoreNormalChatUI();
         previewState.isActive = false;
-        previewState.originalContext = null; // 清理状态
+        previewState.originalContext = null;
         previewState.previewChatId = null;
     }
 }
 
 /**
- * 处理预览按钮点击 (Optimized Version 7.0 - No Rename - With UI Changes)
- * 创建或切换到预览聊天，并批量填充收藏的消息，隐藏输入框，添加返回按钮。
+ * 处理预览按钮点击 (包含UI修改和聊天重命名)
+ * 创建或切换到预览聊天，重命名聊天，并批量填充收藏的消息，隐藏输入框，添加返回按钮。
  */
 async function handlePreviewButtonClick() {
-    console.log(`${pluginName}: 预览按钮被点击 (包含UI修改)`);
+    console.log(`${pluginName}: 预览按钮被点击 (包含UI修改和重命名)`);
     toastr.info('正在准备预览聊天...');
 
-    // --- 新增：保存原始上下文 ---
+    // --- 保存原始上下文 ---
     const initialContext = getContext();
     previewState.originalContext = {
         characterId: initialContext.characterId,
         groupId: initialContext.groupId,
         chatId: initialContext.chatId, // 存储进入预览前的 chatId
     };
-    // 重置状态，确保每次点击都是干净的开始 (CHAT_CHANGED 会处理旧状态)
+    // 重置状态
     previewState.isActive = false;
     previewState.previewChatId = null;
-    restoreNormalChatUI(); // 以防万一之前的状态没清理干净
+    restoreNormalChatUI(); // 清理旧UI状态
 
     console.log(`${pluginName}: 保存的原始上下文:`, previewState.originalContext);
 
-
     try {
-        // const initialContext = getContext(); // 移到前面获取
         if (!initialContext.groupId && initialContext.characterId === undefined) {
             console.error(`${pluginName}: 错误: 没有选择角色或群聊`);
             toastr.error('请先选择一个角色或群聊');
@@ -769,26 +858,29 @@ async function handlePreviewButtonClick() {
         const previewKey = groupId ? `group_${groupId}` : `char_${characterId}`;
         const existingPreviewChatId = extension_settings[pluginName].previewChats[previewKey];
         let targetPreviewChatId = existingPreviewChatId;
+        let needsRename = false; // <--- 新增：标记是否需要重命名
 
         // --- 步骤 1: 切换或创建聊天 ---
         if (existingPreviewChatId) {
             console.log(`${pluginName}: 发现现有预览聊天ID: ${existingPreviewChatId}`);
-             if (initialContext.chatId === existingPreviewChatId) {
+            if (initialContext.chatId === existingPreviewChatId) {
                 console.log(`${pluginName}: 已在目标预览聊天 (${existingPreviewChatId})，无需切换。`);
                 targetPreviewChatId = initialContext.chatId; // 确认目标ID
+                needsRename = true; // 即使已在，也检查并确保名称正确
             } else {
                 console.log(`${pluginName}: 正在切换到预览聊天...`);
+                needsRename = true; // 切换过去后需要检查并重命名
                 if (groupId) {
                     await openGroupChat(groupId, existingPreviewChatId);
                 } else {
                     await openCharacterChat(existingPreviewChatId);
                 }
-                // 切换后，等待 CHAT_CHANGED 事件确认 targetPreviewChatId
+                // 等待 CHAT_CHANGED
             }
         } else {
             console.log(`${pluginName}: 未找到预览聊天ID，将创建新聊天`);
             await doNewChat({ deleteCurrentChat: false });
-            const newContextAfterCreation = getContext();
+            const newContextAfterCreation = getContext(); // 创建后立即获取上下文
             targetPreviewChatId = newContextAfterCreation.chatId;
             if (!targetPreviewChatId) {
                 console.error(`${pluginName}: 创建新聊天后无法获取聊天ID`);
@@ -796,16 +888,17 @@ async function handlePreviewButtonClick() {
             }
             console.log(`${pluginName}: 新聊天ID: ${targetPreviewChatId}`);
             extension_settings[pluginName].previewChats[previewKey] = targetPreviewChatId;
-            saveMetadataDebounced();
+            saveMetadataDebounced(); // 保存新的预览聊天ID映射
+            needsRename = true; // 新创建的聊天肯定需要命名
         }
 
         // --- 步骤 2: 等待聊天切换/创建完成 (事件驱动) ---
         const currentContextAfterSwitchAttempt = getContext();
         if (currentContextAfterSwitchAttempt.chatId !== targetPreviewChatId) {
-             console.log(`${pluginName}: Waiting for CHAT_CHANGED event to confirm switch to ${targetPreviewChatId}...`);
-             try {
-                // 使用 Promise 包装事件监听器
+            console.log(`${pluginName}: Waiting for CHAT_CHANGED event to confirm switch to ${targetPreviewChatId}...`);
+            try {
                 targetPreviewChatId = await new Promise((resolve, reject) => {
+                     // ... (Promise 和 Timeout/Listener 逻辑不变) ...
                      const timeout = setTimeout(() => {
                         eventSource.off(event_types.CHAT_CHANGED, listener);
                         reject(new Error(`Waiting for CHAT_CHANGED to ${targetPreviewChatId} timed out after 5 seconds`));
@@ -815,37 +908,122 @@ async function handlePreviewButtonClick() {
                         if (receivedChatId === targetPreviewChatId) {
                              console.log(`${pluginName}: Received expected CHAT_CHANGED event for chatId: ${receivedChatId}`);
                             clearTimeout(timeout);
-                            requestAnimationFrame(() => resolve(receivedChatId)); // 确认是这个 ID
+                            eventSource.off(event_types.CHAT_CHANGED, listener); // 移除监听器
+                            requestAnimationFrame(() => resolve(receivedChatId));
                         } else {
-                            console.log(`${pluginName}: Received CHAT_CHANGED for unexpected chatId ${receivedChatId}, could be intermediate state or error.`);
-                             // 如果 targetPreviewChatId 是新创建的，接收到的可能是旧的 chatId
-                             // 如果 targetPreviewChatId 是已存在的，接收到的可能是旧的 chatId
-                             // 这里需要更健壮的逻辑，或者依赖后续的 getContext 检查
-                             // 为简单起见，我们假设最终会切换到 targetPreviewChatId
-                             // 严格来说，应该在这里继续等待或处理错误
+                             console.log(`${pluginName}: Received CHAT_CHANGED for unexpected chatId ${receivedChatId}, waiting...`);
                         }
                     };
-                    // 使用 once 确保只监听一次
-                    eventSource.once(event_types.CHAT_CHANGED, listener);
+                    // 监听，而不是 once，以防中间状态切换
+                    eventSource.on(event_types.CHAT_CHANGED, listener);
                 });
-                 console.log(`${pluginName}: CHAT_CHANGED event processed. Confirmed target chatId: ${targetPreviewChatId}. UI should be stable.`);
+                console.log(`${pluginName}: CHAT_CHANGED event processed. Confirmed target chatId: ${targetPreviewChatId}.`);
             } catch (error) {
                 console.error(`${pluginName}: Error or timeout waiting for CHAT_CHANGED:`, error);
                 toastr.error('切换到预览聊天时出错或超时，请重试');
-                previewState.originalContext = null; // 清理状态
-                return; // 中断执行
+                previewState.originalContext = null;
+                return;
             }
         } else {
             console.log(`${pluginName}: Already in the target chat or switch completed instantly. Target chatId: ${targetPreviewChatId}`);
             await new Promise(resolve => requestAnimationFrame(resolve)); // 等待一帧确保UI稳定
         }
 
+        // --- 新增：步骤 2.5: 重命名聊天 (如果需要) ---
+        const contextForRename = getContext();
+        if (contextForRename.chatId === targetPreviewChatId && needsRename) {
+            const oldFileName = contextForRename.chatId;
+
+            if (!oldFileName || typeof oldFileName !== 'string') {
+                console.error(`${pluginName}: 无法获取有效的旧聊天文件名 (chatId)，跳过重命名。`);
+                toastr.warning('无法获取当前聊天名称，跳过重命名。');
+            } else {
+                console.log(`${pluginName}: 准备重命名预览聊天 ${targetPreviewChatId}. 旧文件名: ${oldFileName}`);
+                const previewPrefix = "[收藏预览] ";
+
+                // --- *** 确保这部分代码存在且未被注释 *** ---
+                let currentChatName = contextForRename.chatName; // 声明并尝试从上下文获取
+                if (!currentChatName) { // 如果 chatName 不存在或为空
+                    if (contextForRename.groupId) {
+                        // 尝试获取群组名
+                        const group = contextForRename.groups?.find(g => g.id === contextForRename.groupId);
+                        currentChatName = group ? group.name : '群聊'; // 使用群组名或默认名
+                    } else if (contextForRename.characterId !== undefined) {
+                        // 尝试获取角色名
+                        currentChatName = contextForRename.name2 || '角色聊天'; // 使用角色名(name2)或默认名
+                    } else {
+                        // 最终备选
+                        currentChatName = '新聊天';
+                    }
+                    console.log(`${pluginName}: 未直接获取到 chatName，使用派生名称: ${currentChatName}`);
+                }
+                // --- *** 确认代码结束 *** ---
+
+
+                let newName = currentChatName; // 现在 currentChatName 应该有值了
+
+                // 检查 currentChatName 是否真的是字符串，以防万一
+                if (typeof currentChatName === 'string' && !currentChatName.startsWith(previewPrefix)) {
+                    newName = previewPrefix + currentChatName;
+                } else if (typeof currentChatName !== 'string'){
+                     console.warn(`${pluginName}: currentChatName 不是字符串 (${typeof currentChatName})，无法安全添加前缀。使用默认名称。`);
+                     // 提供一个备用名称，避免后续错误
+                     newName = previewPrefix + '未命名预览';
+                     currentChatName = '未命名预览'; // 确保后续比较能进行
+                }
+
+                const finalNewName = typeof newName === 'string' ? newName.trim() : '';
+
+                // 再次检查 finalNewName 并且确保 currentChatName 是字符串
+                if (finalNewName && typeof currentChatName === 'string' && !currentChatName.startsWith(previewPrefix)) {
+                    console.log(`${pluginName}: 应用前缀，最终重命名为 "${finalNewName}" (从 "${oldFileName}")`);
+                    try {
+                        await renameChat(oldFileName, finalNewName);
+                        console.log(`${pluginName}: 预览聊天已成功重命名`);
+
+                        // --- 更新 targetPreviewChatId 和 extension_settings ---
+                        console.log(`${pluginName}: 重命名成功，将 targetPreviewChatId 从 ${targetPreviewChatId} 更新为 ${finalNewName}`);
+                        targetPreviewChatId = finalNewName; // 更新追踪变量
+
+                        const previewKey = contextForRename.groupId ? `group_${contextForRename.groupId}` : `char_${contextForRename.characterId}`;
+                        if (extension_settings[pluginName].previewChats && previewKey in extension_settings[pluginName].previewChats) {
+                            extension_settings[pluginName].previewChats[previewKey] = targetPreviewChatId;
+                            saveMetadataDebounced();
+                            console.log(`${pluginName}: 更新 extension_settings 中的预览映射: ${previewKey} -> ${targetPreviewChatId}`);
+                        } else {
+                             console.warn(`${pluginName}: 无法在 extension_settings 中找到 previewKey ${previewKey} 来更新映射，或 previewChats 未定义`);
+                             // 即使映射更新失败，也要继续，因为 targetPreviewChatId 已更新
+                        }
+                        // --- 更新结束 ---
+
+                    } catch(renameError) {
+                        console.error(`${pluginName}: 重命名预览聊天失败 (尝试从 "${oldFileName}" 重命名为: "${finalNewName}"):`, renameError);
+                        toastr.error('重命名预览聊天失败，请检查控制台');
+                        // 重命名失败，targetPreviewChatId 保持旧值 (oldFileName)
+                        targetPreviewChatId = oldFileName;
+                    }
+                } else if (typeof currentChatName === 'string' && currentChatName.startsWith(previewPrefix)) {
+                    console.log(`${pluginName}: 聊天名称已包含前缀，无需重命名: "${currentChatName}" (文件: ${oldFileName})`);
+                    targetPreviewChatId = oldFileName; // 确保 ID 正确
+                } else {
+                    console.warn(`${pluginName}: 计算出的新名称无效或为空 ("${finalNewName}")，或者原始名称不是字符串，跳过重命名。原始名称: "${currentChatName}", 文件: ${oldFileName}`);
+                    targetPreviewChatId = oldFileName; // 确保 ID 正确
+                }
+            }
+        } else if (needsRename) {
+             console.warn(`${pluginName}: 上下文不匹配或不需要重命名，跳过重命名步骤。Context ChatId: ${contextForRename.chatId}, Target: ${targetPreviewChatId}`);
+             targetPreviewChatId = contextForRename.chatId; // 确保 ID 正确
+        } else {
+            targetPreviewChatId = contextForRename.chatId; // 确保 ID 正确
+            console.log(`${pluginName}: 不需要重命名，确认 targetPreviewChatId 为 ${targetPreviewChatId}`);
+        }
+
 
         // --- 步骤 3: 清空当前聊天 ---
-        console.log(`${pluginName}: 清空当前 (预览) 聊天 (ID: ${targetPreviewChatId})...`);
-        clearChat(); // 清空界面和内部 chat 数组
+        console.log(`${pluginName}: 清空当前 (预览) 聊天 (ID: ${targetPreviewChatId})...`); // 使用确认/更新后的 ID
+        clearChat();
 
-        // --- 步骤 4: 等待聊天 DOM 清空 (条件驱动) ---
+        // --- 步骤 4: 等待聊天 DOM 清空 ---
         console.log(`${pluginName}: Waiting for chat DOM to clear...`);
         try {
             await waitUntilCondition(() => document.querySelectorAll('#chat .mes').length === 0, 2000, 50);
@@ -855,14 +1033,13 @@ async function handlePreviewButtonClick() {
             toastr.warning('清空聊天时可能超时，继续尝试填充消息...');
         }
 
-        // --- 新增：步骤 4.5: 设置预览模式 UI ---
-        // 确保我们确实在目标预览聊天中
+        // --- 步骤 4.5: 设置预览模式 UI ---
         const contextBeforeFill = getContext();
         if (contextBeforeFill.chatId !== targetPreviewChatId) {
             console.error(`${pluginName}: Error: Context switched unexpectedly BEFORE setting up UI. Expected ${targetPreviewChatId}, got ${contextBeforeFill.chatId}. Aborting.`);
             toastr.error('无法确认预览聊天环境，操作中止。请重试。');
-            previewState.originalContext = null; // 清理状态
-            restoreNormalChatUI(); // 尝试恢复UI
+            previewState.originalContext = null;
+            restoreNormalChatUI();
             return;
         }
         setupPreviewUI(targetPreviewChatId); // * * * 执行UI修改 * * *
@@ -871,6 +1048,7 @@ async function handlePreviewButtonClick() {
         // --- 步骤 5: 准备收藏消息 (健壮查找) ---
         console.log(`${pluginName}: 正在准备收藏消息以填充预览聊天...`);
         const messagesToFill = [];
+        // ... (准备 messagesToFill 的逻辑不变) ...
         for (const favItem of chatMetadata.favorites) {
             const messageIdStr = favItem.messageId;
             const messageIndex = parseInt(messageIdStr, 10);
@@ -895,43 +1073,53 @@ async function handlePreviewButtonClick() {
         messagesToFill.sort((a, b) => a.mesid - b.mesid);
         console.log(`${pluginName}: 找到 ${messagesToFill.length} 条有效收藏消息可以填充`);
 
+
         // --- 步骤 6: 批量填充消息 ---
-        const finalContext = getContext(); // 获取填充操作开始时的最终上下文
-        // *** 再次检查，确保还在预览聊天中 ***
-        if (finalContext.chatId !== targetPreviewChatId) {
-             console.error(`${pluginName}: Error: Context switched unexpectedly during preparation. Expected ${targetPreviewChatId}, got ${finalContext.chatId}. Aborting fill.`);
+        const finalContextForFill = getContext(); // 获取填充操作开始时的最终上下文
+        // *** 再次检查 ***
+        if (finalContextForFill.chatId !== targetPreviewChatId) {
+             console.error(`${pluginName}: Error: Context switched unexpectedly during preparation. Expected ${targetPreviewChatId}, got ${finalContextForFill.chatId}. Aborting fill.`);
              toastr.error('预览聊天环境发生意外变化，填充操作中止。请重试。');
-             restoreNormalChatUI(); // 清理UI
-             previewState.isActive = false; // 重置状态
+             restoreNormalChatUI();
+             previewState.isActive = false;
              previewState.originalContext = null;
              previewState.previewChatId = null;
-             return; // 中断执行
+             return;
         }
-        console.log(`${pluginName}: Confirmed context for chatId ${finalContext.chatId}. Starting batch fill...`);
+        console.log(`${pluginName}: Confirmed context for chatId ${finalContextForFill.chatId}. Starting batch fill...`);
 
         let addedCount = 0;
         const BATCH_SIZE = 20;
+        // ... (批量填充 messagesToFill 的逻辑不变) ...
         for (let i = 0; i < messagesToFill.length; i += BATCH_SIZE) {
             const batch = messagesToFill.slice(i, i + BATCH_SIZE);
             console.log(`${pluginName}: Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(messagesToFill.length / BATCH_SIZE)} (${batch.length} messages)`);
             for (const item of batch) {
                 try {
                     const message = item.message;
-                    const originalMesid = item.mesid;
-                    await finalContext.addOneMessage(message, {
+                    const originalMesid = item.mesid; // 使用原始消息的索引
+                    // 注意：forceId 可能不适用于所有 addOneMessage 实现，
+                    // SillyTavern 核心的 addOneMessage 似乎不直接支持 forceId 来强制 *索引*。
+                    // 它通常用于内部消息 ID。这里的目标是尽量保持原始顺序。
+                    // 批量添加本身会按顺序进行，mesid 主要用于排序。
+                    await finalContextForFill.addOneMessage(message, {
                         scroll: false,
-                        forceId: originalMesid
+                        // forceId: originalMesid // 可能无效或引起问题，移除或注释掉
                     });
                     addedCount++;
                 } catch (error) {
-                    console.error(`${pluginName}: Error adding message (original mesid=${item.mesid}):`, error);
+                    console.error(`${pluginName}: Error adding message (original index=${item.mesid}):`, error);
                 }
             }
+            // 添加延迟以允许 UI 渲染
             if (i + BATCH_SIZE < messagesToFill.length) {
-                await new Promise(resolve => requestAnimationFrame(resolve));
+                 await new Promise(resolve => setTimeout(resolve, 50)); // 短暂延迟
+                 // await new Promise(resolve => requestAnimationFrame(resolve)); // 或者按帧延迟
             }
         }
+
         console.log(`${pluginName}: All batches processed. Total messages added: ${addedCount}`);
+
 
         // --- 步骤 7: 完成与最终处理 ---
         if (addedCount > 0) {
@@ -940,9 +1128,7 @@ async function handlePreviewButtonClick() {
         } else if (messagesToFill.length > 0) {
              console.warn(`${pluginName}: No messages were successfully added, although ${messagesToFill.length} were prepared.`);
              toastr.warning('准备了收藏消息，但未能成功添加到预览中。请检查控制台。');
-             // 即使添加失败，UI 仍然处于预览模式，用户可以通过返回按钮退出
         } else {
-             // 没有消息可添加，但 UI 仍然进入了预览模式（虽然是空的）
              toastr.info('收藏夹为空，已进入（空的）预览模式。点击下方按钮返回。');
         }
 
@@ -1205,18 +1391,57 @@ jQuery(async () => {
         restoreNormalChatUI(); // 确保加载时输入框可见，无返回按钮
 
         // --- Event Listeners ---
-        eventSource.on(event_types.CHAT_CHANGED, (newChatId) => { // <--- 修改：接收 newChatId
-            console.log(`${pluginName}: 聊天已更改，更新收藏图标...`);
+        eventSource.on(event_types.CHAT_CHANGED, (newChatId) => {
+            console.log(`${pluginName}: 聊天已更改，新 Chat ID: ${newChatId}`);
+
+            // 1. 处理从活动预览模式切换离开的逻辑 (恢复UI)
+            // 这个函数内部会检查 previewState.isActive
+            handleChatChangeForPreview(newChatId);
+
+            // 2. 确保新聊天的收藏夹元数据数组存在
+            // 放在这里，确保后续逻辑（如图标刷新）可以访问到元数据
             ensureFavoritesArrayExists();
-            // --- 新增：调用聊天切换处理函数 ---
-            handleChatChangeForPreview(newChatId); // <--- 新增调用
-            // ---
+
+            // 3. 新增：检查是否手动切换回了 *曾经* 的预览聊天
+            // (关键：只在非活动预览状态下执行此检查)
+            if (!previewState.isActive) {
+                const previewChatsMap = extension_settings[pluginName]?.previewChats;
+                // 确保 previewChatsMap 存在且有内容
+                if (previewChatsMap && Object.keys(previewChatsMap).length > 0) {
+                    // 获取所有已知的预览聊天 ID (映射的值)
+                    const knownPreviewChatIds = Object.values(previewChatsMap);
+
+                    // 检查当前切换到的 newChatId 是否在已知的预览聊天 ID 列表中
+                    if (knownPreviewChatIds.includes(newChatId)) {
+                        console.log(`${pluginName}: 检测到用户手动切换回之前的预览聊天 (${newChatId})，准备显示提示。`);
+
+                        // 显示提示信息给用户
+                        toastr.info(
+                            `注意：该聊天"${newChatId}"为【收藏聊天器】插件预览的聊天，仅仅只做预览收藏消息使用，该聊天可以删除，但请勿在该聊天发送任何消息，因为该聊天的记录都会在每次<预览>前清空！`,
+                            '进入收藏预览聊天', // 提示标题
+                            {
+                                timeOut: 6500,              // 基础显示时间 6.5 秒
+                                extendedTimeOut: 3000,      // 悬停时延长 3 秒
+                                preventDuplicates: true,    // 防止因快速切换重复弹出
+                                positionClass: 'toast-top-center' // 让提示在顶部中间显示 (可选, 默认右上角)
+                            }
+                        );
+                    }
+                }
+            } else {
+                console.log(`${pluginName}: 当前处于活动预览状态 (isActive: true)，跳过“手动切换回预览聊天”的检查。`);
+            }
+
+            // 4. 延迟刷新聊天界面中的收藏图标状态
+            // 放在最后，确保聊天内容加载和状态检查都完成后再更新UI
             setTimeout(() => {
-                addFavoriteIconsToMessages();
-                refreshFavoriteIconsInView();
-            }, 150);
+                console.log(`${pluginName}: CHAT_CHANGED 后延迟执行图标刷新 (Chat ID: ${newChatId})`);
+                addFavoriteIconsToMessages(); // 确保新加载的消息（如果有）有图标结构
+                refreshFavoriteIconsInView(); // 根据当前聊天的元数据更新图标的 solid/regular 状态
+            }, 150); // 150ms 延迟，给 DOM 更新留出时间
         });
 
+        // --- 其他事件监听器 (保持不变) ---
         eventSource.on(event_types.MESSAGE_DELETED, (deletedMessageIndex) => {
             const deletedMessageId = String(deletedMessageIndex);
             console.log(`${pluginName}: 检测到消息删除事件, 索引: ${deletedMessageIndex}`);
@@ -1227,43 +1452,53 @@ jQuery(async () => {
                 console.log(`${pluginName}: 消息索引 ${deletedMessageIndex} (ID: ${deletedMessageId}) 被删除，移除对应的收藏项`);
                 chatMetadata.favorites.splice(favIndex, 1);
                 saveMetadataDebounced();
+                // 如果收藏夹弹窗是打开的，刷新它
                 if (favoritesPopup && favoritesPopup.dlg && favoritesPopup.dlg.hasAttribute('open')) {
+                    // 重置到第一页可能不是最佳体验，但可以确保用户看到更新后的列表
                     currentPage = 1;
                     updateFavoritesPopup();
                 }
             } else {
                  console.log(`${pluginName}: 未找到引用已删除消息索引 ${deletedMessageIndex} (ID: ${deletedMessageId}) 的收藏项`);
             }
+             // 删除消息后，也需要刷新当前聊天视图中的图标状态
              setTimeout(refreshFavoriteIconsInView, 100);
         });
 
         const handleNewMessage = () => {
+             // 新消息到达或发送后，需要确保新消息有图标结构
              setTimeout(() => {
                  addFavoriteIconsToMessages();
+                 // 不需要 refreshFavoriteIconsInView，因为新消息默认不是收藏状态
              }, 150);
         };
         eventSource.on(event_types.MESSAGE_RECEIVED, handleNewMessage);
         eventSource.on(event_types.MESSAGE_SENT, handleNewMessage);
+
+        // 消息滑动或更新后，需要刷新图标状态（可能滑动到了已收藏的消息）
         eventSource.on(event_types.MESSAGE_SWIPED, () => {
             setTimeout(refreshFavoriteIconsInView, 150);
         });
         eventSource.on(event_types.MESSAGE_UPDATED, () => {
              setTimeout(refreshFavoriteIconsInView, 150);
         });
+
+        // 加载更多历史消息后，需要给新加载的消息添加图标结构并刷新状态
         eventSource.on(event_types.MORE_MESSAGES_LOADED, () => {
              console.log(`${pluginName}: 加载了更多消息，更新图标...`);
              setTimeout(() => {
-                 addFavoriteIconsToMessages();
-                 refreshFavoriteIconsInView();
+                 addFavoriteIconsToMessages(); // 添加结构
+                 refreshFavoriteIconsInView(); // 更新状态
              }, 150);
         });
 
-        // MutationObserver (unchanged)
+        // --- MutationObserver (保持不变) ---
         const chatObserver = new MutationObserver((mutations) => {
             let needsIconAddition = false;
             for (const mutation of mutations) {
                 if (mutation.type === 'childList' && mutation.addedNodes.length) {
                     mutation.addedNodes.forEach(node => {
+                        // 检查新增节点本身是否是消息，或者其子节点中是否包含消息
                         if (node.nodeType === 1 && (node.classList.contains('mes') || node.querySelector('.mes'))) {
                             needsIconAddition = true;
                         }
@@ -1271,21 +1506,22 @@ jQuery(async () => {
                 }
             }
             if (needsIconAddition) {
-                 setTimeout(addFavoriteIconsToMessages, 200);
+                 // 监听到 DOM 变化（可能有新消息渲染），延迟添加图标结构
+                 setTimeout(addFavoriteIconsToMessages, 200); // 稍长延迟确保渲染完成
             }
         });
         const chatElement = document.getElementById('chat');
         if (chatElement) {
             chatObserver.observe(chatElement, {
-                childList: true,
-                subtree: true
+                childList: true, // 监视直接子节点的添加/删除
+                subtree: true    // 监视所有后代节点的添加/删除
             });
              console.log(`${pluginName}: MutationObserver 已启动，监视 #chat 的变化`);
         } else {
              console.error(`${pluginName}: 未找到 #chat 元素，无法启动 MutationObserver`);
         }
 
-        console.log(`${pluginName}: 插件加载完成! (已应用预览UI修改)`);
+        console.log(`${pluginName}: 插件加载完成! (已应用预览UI修改和聊天切换提示)`);
     } catch (error) {
         console.error(`${pluginName}: 初始化过程中出错:`, error);
     }
