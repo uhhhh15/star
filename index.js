@@ -1154,50 +1154,126 @@ async function handleExportFavorites() {
 
 /**
  * Handles exporting the favorited messages to a JSONL file.
+ * Exports ONLY the favorited messages, maintaining their original relative order.
+ * The line number in the output .jsonl file (starting from 0) serves as the new sequential index.
  */
 async function handleExportFavoritesJsonl() {
-    // ... (代码保持不变) ...
-     console.log(`${pluginName}: handleExportFavoritesJsonl - 开始导出收藏 (JSONL)`);
+    // 函数开始，记录日志
+    console.log(`${pluginName}: handleExportFavoritesJsonl - 开始导出收藏 (JSONL, 按收藏顺序重索引)`);
+    // 获取当前上下文和收藏元数据
     const context = getContext();
     const chatMetadata = ensureFavoritesArrayExists();
 
+    // 基础检查：确保有收藏，有上下文，且 context.chat 是数组
     if (!chatMetadata || !Array.isArray(chatMetadata.favorites) || chatMetadata.favorites.length === 0) {
-        toastr.warning('没有收藏的消息可以导出。'); return;
+        toastr.warning('没有收藏的消息可以导出。');
+        console.log(`${pluginName}: handleExportFavoritesJsonl - 没有收藏，导出中止`);
+        return;
     }
-    if (!context || !context.chat) {
-        toastr.error('无法获取当前聊天记录以导出收藏。'); return;
+    if (!context || !context.chat || !Array.isArray(context.chat)) { // 增加对 context.chat 是否为数组的检查
+        toastr.error('无法获取当前聊天记录以导出收藏。');
+        console.error(`${pluginName}: handleExportFavoritesJsonl - 无法获取 context.chat 或其不是有效数组`);
+        return;
     }
 
+    // 提示用户
     toastr.info('正在准备导出收藏 (JSONL)...', '导出中');
 
     try {
-        if (typeof timestampToMoment !== 'function') throw new Error('timestampToMoment function is not available.');
+        // 检查依赖函数
+        if (typeof timestampToMoment !== 'function') {
+            console.error(`${pluginName}: timestampToMoment function is not available.`);
+            toastr.error('导出功能所需的时间格式化工具不可用。');
+            return;
+        }
 
-        const sortedFavorites = [...chatMetadata.favorites].sort((a, b) => parseInt(a.messageId) - parseInt(b.messageId));
+        // 1. 按原始 messageId 排序收藏项，确保导出顺序正确
+        const sortedFavorites = [...chatMetadata.favorites].sort((a, b) => {
+            // 在排序前进行更健壮的解析和 NaN 处理
+            const idA = parseInt(a?.messageId, 10);
+            const idB = parseInt(b?.messageId, 10);
+            if (isNaN(idA) && isNaN(idB)) return 0; // 两者都无效，视为相等
+            if (isNaN(idA)) return 1; // 无效 ID 排在后面
+            if (isNaN(idB)) return -1; // 无效 ID 排在后面
+            return idA - idB; // 按数字升序排列
+        });
+
+        // 2. 初始化用于存储最终导出对象的数组
         const exportObjects = [];
         let exportedMessageCount = 0;
 
-        for (const favItem of sortedFavorites) {
-            const messageIndex = parseInt(favItem.messageId, 10);
-            const message = (!isNaN(messageIndex) && context.chat[messageIndex]) ? context.chat[messageIndex] : null;
-            if (message) {
-                 exportObjects.push(message);
-                 exportedMessageCount++;
-            } else {
-                 console.warn(`${pluginName}: handleExportFavoritesJsonl - 找不到索引为 ${favItem.messageId} 的原始消息，将跳过此条收藏的导出。`);
+        console.log(`[${pluginName}] JSONL Export - 总计收藏项: ${sortedFavorites.length}`);
+        console.log(`[${pluginName}] JSONL Export - 当前聊天记录长度: ${context.chat.length}`);
+
+        // 3. 遍历排序后的收藏项，获取对应的原始消息对象
+        for (let i = 0; i < sortedFavorites.length; i++) {
+            const favItem = sortedFavorites[i];
+            console.log(`[${pluginName}] JSONL Export - 处理收藏项 ${i + 1}/${sortedFavorites.length}: ID=${favItem.id}, 存储的 messageId='${favItem.messageId}'`);
+
+            // --- 健壮地解析和验证 messageId ---
+            let messageIndex = NaN;
+            // 确保 favItem.messageId 存在且是字符串或数字
+            if (favItem.messageId !== undefined && favItem.messageId !== null && (typeof favItem.messageId === 'string' || typeof favItem.messageId === 'number')) {
+                 messageIndex = parseInt(favItem.messageId, 10);
             }
-        }
 
+            // 检查解析结果是否有效 (非 NaN 且 >= 0)
+            if (isNaN(messageIndex) || messageIndex < 0) {
+                console.warn(`[${pluginName}] JSONL Export - 发现无效的 messageId (解析后为 ${messageIndex})，来自收藏项 ID ${favItem.id} (原始值: '${favItem.messageId}')。跳过此项。`);
+                continue; // 跳过这个无效的收藏项
+            }
+            console.log(`[${pluginName}] JSONL Export - 解析得到的 messageIndex: ${messageIndex}`);
+            // --- 验证结束 ---
+
+            // --- 安全地获取消息对象 ---
+            let message = null;
+            // 检查索引是否在 context.chat 的有效范围内
+            if (messageIndex < context.chat.length) {
+                // *** 使用验证后的 messageIndex 从 context.chat 获取消息 ***
+                message = context.chat[messageIndex];
+                if (!message) {
+                     // 如果索引有效但对应位置是空的（理论上不应发生，但增加保护）
+                     console.warn(`[${pluginName}] JSONL Export - 在索引 ${messageIndex} 处的消息为空或无效。跳过此项。`);
+                }
+            } else {
+                // 如果索引超出当前聊天记录的范围
+                console.warn(`[${pluginName}] JSONL Export - messageIndex ${messageIndex} 超出聊天记录范围 (长度 ${context.chat.length})。跳过此项。`);
+            }
+            // --- 获取结束 ---
+
+            // 如果成功获取到消息对象
+            if (message) {
+                console.log(`[${pluginName}] JSONL Export - 成功获取索引 ${messageIndex} 的消息。消息发送者: '${message.name}'。准备添加到导出列表。`);
+                // 将原始的消息对象添加到数组中
+                exportObjects.push(message);
+                exportedMessageCount++;
+            } else {
+                 console.log(`[${pluginName}] JSONL Export - 未能成功获取索引 ${messageIndex} 的消息对象。`);
+                 // 上面的警告已打印具体原因
+            }
+        } // 循环结束
+
+        console.log(`[${pluginName}] JSONL Export - 完成收藏项处理。总共收集到 ${exportedMessageCount} 条消息用于导出。`);
+
+        // 4. 检查是否有消息被成功收集
         if (exportedMessageCount === 0) {
-            toastr.warning('所有收藏项对应的原始消息均无法找到，无法生成 JSONL 文件。'); return;
+            toastr.warning('未能找到任何可导出的收藏消息（可能原始消息已被删除或收藏记录无效）。');
+            console.log(`${pluginName}: handleExportFavoritesJsonl - 未收集到有效的原始消息用于导出。`);
+            return;
         }
 
+        // 5. 生成 JSONL 文本
+        // exportObjects 数组中的顺序就是收藏消息的原始相对顺序
+        // .map + .join('\n') 会自然地让第一条收藏消息在第 0 行，第二条在第 1 行...
         const exportedJsonlText = exportObjects.map(obj => JSON.stringify(obj)).join('\n');
+
+        // 6. 创建 Blob 并触发下载
         const blob = new Blob([exportedJsonlText], { type: 'application/jsonlines;charset=utf-8' });
         const chatName = context.characterId ? context.name2 : (context.groups?.find(g => g.id === context.groupId)?.name || '群聊');
         const exportDate = timestampToMoment(Date.now()).format('YYYYMMDD_HHmmss');
         const safeChatName = String(chatName).replace(/[\\/:*?"<>|]/g, '_');
-        const filename = `${safeChatName}_收藏_${exportDate}.jsonl`;
+        const filename = `${safeChatName}_收藏_${exportDate}.jsonl`; // 文件名后缀 .jsonl
+
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
         link.download = filename;
@@ -1206,8 +1282,12 @@ async function handleExportFavoritesJsonl() {
         document.body.removeChild(link);
         URL.revokeObjectURL(link.href);
 
+        // 7. 完成反馈
+        console.log(`${pluginName}: handleExportFavoritesJsonl - 成功: 导出 ${exportedMessageCount} 条消息到 ${filename}`);
         toastr.success(`已成功导出 ${exportedMessageCount} 条收藏消息到文件 "${filename}" (JSONL)`, '导出完成');
+
     } catch (error) {
+        // 8. 错误处理
         console.error(`${pluginName}: handleExportFavoritesJsonl - 导出过程中发生错误:`, error);
         toastr.error(`导出收藏 (JSONL) 时发生错误: ${error.message || '未知错误'}`);
     }
