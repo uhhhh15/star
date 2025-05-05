@@ -1217,7 +1217,7 @@ async function handleExportFavoritesJsonl() {
 /**
  * Handles exporting the favorited messages to a SillyTavern World Book (JSON) file.
  * 每个收藏的消息会转换为一个世界书条目，设置为常驻（蓝灯），按聊天顺序排序，
- * depth 设为 0，并根据消息发送者插入为 @ D0 (position: 6)，
+ * depth 设为 0，并根据消息发送者插入为 @ D0 (position: 4)，
  * role 分别设为 1 (User) 或 2 (Assistant)。
  */
 async function handleExportFavoritesWorldbook() {
@@ -1272,7 +1272,7 @@ async function handleExportFavoritesWorldbook() {
                 exportedEntryCount++; // 计数增加
 
                 // --- 修改：根据用户最新要求设置 depth 和 role ---
-                const position = 6; // @ D0 对应的 position 固定为 6
+                const position = 4; // @ D0 对应的 position 固定为 6
                 const roleValue = message.is_user ? 1 : 2; // 用户消息 role=1, AI消息 role=2
                 const depthValue = 0; // 明确设置 depth 为 0
                 // --- 修改结束 ---
