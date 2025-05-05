@@ -1,19 +1,44 @@
 /* public/extensions/third-party/favorites-plugin/style.css */
+
 /* Favorites popup styles */
-.favorites-popup-content {
-    padding: 10px;
-    max-height: 70vh;
-    overflow-y: auto;
+.favorites-popup-content { /* 这个选择器在 index.js 的 <style> 中已定义 */
+    /* padding: 10px; */
+    /* max-height: 70vh; */
+    /* overflow-y: auto; */
 }
 
-.favorites-header h3 {
-    text-align: center;
-    margin: 0 0 10px 0;
+/* --- 新增：收藏夹弹窗头部样式 (与 index.js 中 <style> 标签内对应) --- */
+/* 这些规则确保标题和按钮（预览、导出）在弹窗顶部良好对齐 */
+.favorites-header {
+    display: flex;              /* 使用 Flexbox 布局 */
+    justify-content: space-between; /* 标题居左，按钮容器居右 */
+    align-items: center;        /* 垂直居中对齐 */
+    padding: 0 10px;            /* 左右内边距 */
+    flex-wrap: wrap;            /* 如果空间不足则换行 */
+    gap: 10px;                  /* 标题和按钮容器之间的间距 */
+    margin-bottom: 10px;        /* 与下方分隔线的间距 */
 }
+.favorites-header h3 {
+     margin: 0;                 /* 移除默认的 margin */
+     flex-grow: 1;             /* 让标题占据多余空间 */
+     text-align: left;         /* 标题左对齐 */
+     white-space: nowrap;      /* 防止标题换行 */
+     overflow: hidden;         /* 隐藏溢出部分 */
+     text-overflow: ellipsis;  /* 用省略号表示溢出 */
+     min-width: 0;             /* 配合 flex-grow 防止溢出 */
+}
+.favorites-header .favorites-header-buttons {
+     display: flex;             /* 让按钮水平排列 */
+     gap: 8px;                  /* 按钮之间的间距 */
+     flex-shrink: 0;           /* 防止按钮容器在空间紧张时被压缩 */
+}
+/* --- 头部样式结束 --- */
+
 
 .favorites-divider {
     height: 1px;
-    background-color: #ff3a3a;
+    /* background-color: #ff3a3a; */ /* 原来的红色分隔线，改为灰色 */
+    background-color: var(--SmartThemeBorderColor, #ccc); /* 使用主题变量或默认灰色 */
     margin: 10px 0;
 }
 
@@ -23,16 +48,16 @@
 
 .favorites-empty {
     text-align: center;
-    color: #888;
+    color: var(--SmartThemeFgMuted, #888); /* 使用主题变量或默认灰色 */
     padding: 20px;
 }
 
 .favorite-item {
-    border: 1px solid #444;
+    border: 1px solid var(--SmartThemeBorderColor, #444); /* 使用主题边框色或默认深灰 */
     border-radius: 8px;
     margin-bottom: 10px;
     padding: 10px;
-    background-color: rgba(0, 0, 0, 0.2);
+    background-color: rgba(0, 0, 0, 0.2); /* 半透明黑色背景 */
     position: relative;
 }
 
@@ -40,25 +65,63 @@
     font-size: 0.8em;
     color: #aaa;
     margin-bottom: 5px;
+    /* 新增/修改，使其与日期在同一行显示时效果更好 */
+    text-align: right;
+    flex-grow: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .fav-note {
     background-color: rgba(255, 255, 0, 0.1);
-    padding: 5px;
+    padding: 5px 8px; /* 增加左右内边距 */
     border-left: 3px solid #ffcc00;
-    margin-bottom: 5px;
+    margin-bottom: 8px; /* 增加与下方预览的间距 */
     font-style: italic;
+    font-size: 0.9em; /* 字号稍小 */
+    word-wrap: break-word; /* 允许长备注换行 */
 }
 
 .fav-preview {
-    margin-bottom: 5px;
+    margin-bottom: 8px; /* 增加与下方动作按钮的间距 */
     line-height: 1.4;
+    max-height: 200px; /* 设置一个最大高度 */
+    overflow-y: auto;  /* 内容超出时显示垂直滚动条 */
+    word-wrap: break-word; /* 允许长单词或链接换行 */
+    white-space: pre-wrap; /* 保留换行符和空格，并允许自动换行 */
+    background-color: rgba(255, 255, 255, 0.05); /* 添加微弱背景以区分 */
+    padding: 5px 8px; /* 内边距 */
+    border-radius: 4px; /* 轻微圆角 */
 }
 
 .fav-preview.deleted {
     color: #ff3a3a;
     font-style: italic;
+    background-color: rgba(255, 58, 58, 0.1); /* 红色背景提示 */
+    /* 保持与普通预览一致的滚动和换行设置 */
+    max-height: 200px;
+    overflow-y: auto;
+    word-wrap: break-word;
+    white-space: pre-wrap;
 }
+
+/* 预览中的代码块 */
+.fav-preview pre {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    overflow-x: auto;
+    white-space: pre; /* 通常代码块不自动换行 */
+    background-color: rgba(0, 0, 0, 0.3); /* 深色背景 */
+    padding: 10px;
+    border-radius: 4px;
+    margin-top: 5px;
+    margin-bottom: 5px;
+    font-family: monospace; /* 等宽字体 */
+}
+
 
 .fav-actions {
     text-align: right;
@@ -69,14 +132,21 @@
     margin-left: 10px;
     padding: 5px;
     border-radius: 50%;
+    transition: background-color 0.2s; /* 添加过渡效果 */
+    font-size: 1.1em; /* 稍微增大图标 */
+    vertical-align: middle; /* 图标垂直居中 */
 }
 
 .fav-actions i:hover {
-    background-color: rgba(255, 255, 255, 0.1);
+    background-color: rgba(255, 255, 255, 0.1); /* 悬停背景 */
 }
 
-.fa-trash {
-    color: #ff3a3a;
+.fav-actions .fa-pencil { /* 编辑图标 */
+    color: var(--SmartThemeLinkColor, #3a87ff); /* 主题链接色或默认蓝色 */
+}
+
+.fa-trash { /* 删除图标 */
+    color: var(--SmartThemeDangerColor, #ff3a3a); /* 主题危险色或默认红色 */
 }
 
 .favorites-pagination {
@@ -89,39 +159,77 @@
 
 .favorites-footer {
     display: flex;
-    justify-content: space-between;
+    justify-content: space-between; /* 如果有多个按钮则两端对齐 */
+    align-items: center;
     margin-top: 15px;
+    padding-top: 10px;
+    border-top: 1px solid var(--SmartThemeBorderColor, #444); /* 顶部加分隔线 */
 }
 
-/* Star icon styles */
+/* Star icon styles (消息上的收藏切换图标) */
 .favorite-toggle-icon {
     cursor: pointer;
 }
 
-.favorite-toggle-icon i.fa-regular {
-    color: #999;
+.favorite-toggle-icon i.fa-regular { /* 未收藏状态 */
+    color: var(--SmartThemeIconColorMuted, #999); /* 主题变量或默认灰色 */
 }
 
-/* 在 style.css 文件中找到或添加 .fav-preview 规则 */
-.fav-preview {
-    margin-bottom: 5px;
-    line-height: 1.4;
-    max-height: 200px; /* 设置一个最大高度，例如 200px */
-    overflow-y: auto;  /* 内容超出时显示垂直滚动条 */
-    word-wrap: break-word; /* 允许长单词或链接换行 */
-    white-space: pre-wrap; /* 保留换行符和空格，并允许自动换行 */
+.favorite-toggle-icon i.fa-solid { /* 已收藏状态 */
+    color: var(--SmartThemeAccentColor, #ffcc00); /* 主题强调色或默认黄色 */
 }
 
-.fav-preview.deleted {
-    color: #ff3a3a;
-    font-style: italic;
-    /* 如果需要，也为 deleted 状态应用 max-height 和 overflow */
-    max-height: 200px;
-    overflow-y: auto;
-    word-wrap: break-word;
-    white-space: pre-wrap;
+/* 收藏项头部的日期和消息 ID 布局 */
+.fav-header-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline; /* 基线对齐 */
+    margin-bottom: 8px;
+    flex-wrap: wrap; /* 允许换行 */
+    gap: 10px; /* 元素间距 */
 }
 
-.favorite-toggle-icon i.fa-solid {
-    color: #ffcc00;
+.fav-send-date {
+    font-size: 0.75em;
+    color: #bbb;
+    text-align: left;
+    /* font-style: italic; */ /* 移除斜体 */
+    display: inline-flex; /* 让内部元素同行显示 */
+    flex-shrink: 0; /* 防止被压缩 */
+    align-items: baseline;
+    white-space: nowrap; /* 防止日期换行 */
+}
+
+.fav-send-date .fav-mesid { /* 消息 ID (#xxx) */
+    margin-left: 8px; /* 与日期分隔 */
+    color: #999; /* 稍浅颜色 */
+    font-size: 0.9em; /* 比日期稍小 */
+    /* font-style: italic; */ /* 移除斜体 */
+}
+
+/* 返回预览按钮样式 (在 index.js 的 <style> 中也定义了) */
+/* 如果希望样式只在 style.css 中定义，可以移除 index.js 中的对应部分 */
+#favorites-return-button { /* 这是预览模式下的返回按钮 ID */
+    display: block;
+    width: fit-content;
+    margin: 15px auto;
+    padding: 8px 15px;
+    background-color: var(--SmartThemeBtnBg);
+    color: var(--SmartThemeBtnFg);
+    border: 1px solid var(--SmartThemeBtnBorder);
+    border-radius: 5px;
+    cursor: pointer;
+    text-align: center;
+}
+#favorites-return-button:hover {
+    background-color: var(--SmartThemeBtnBgHover);
+    color: var(--SmartThemeBtnFgHover);
+    border-color: var(--SmartThemeBtnBorderHover);
+}
+
+/* 确保弹窗内的按钮样式一致 */
+.favorites-popup-content .menu_button { /* 应用于弹窗内的所有 menu_button */
+    width: auto; /* 自动宽度 */
+    padding: 5px 10px; /* 内边距 */
+    font-size: 0.9em; /* 字号 */
 }
