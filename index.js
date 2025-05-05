@@ -1158,26 +1158,31 @@ async function handleExportFavorites() {
  * Exports ONLY the favorited messages AFTER the metadata line, maintaining their original relative order.
  */
 async function handleExportFavoritesJsonl() {
-    // 函数开始
     console.log(`${pluginName}: handleExportFavoritesJsonl - 开始导出收藏 (JSONL, 带元数据行)`);
-    // 获取上下文和收藏
     const context = getContext();
-    const chatMetadata = ensureFavoritesArrayExists();
+    const chatMetadata = ensureFavoritesArrayExists(); // 这个函数内部已经调用了 getContext 并检查了 chatMetadata
 
-    // 基础检查...
+    // 基础检查
     if (!chatMetadata || !Array.isArray(chatMetadata.favorites) || chatMetadata.favorites.length === 0) {
         toastr.warning('没有收藏的消息可以导出。'); return;
     }
+    // 再次获取 context 用于其他属性，确保 context 本身有效
     if (!context || !context.chat || !Array.isArray(context.chat)) {
         toastr.error('无法获取当前聊天记录以导出收藏。'); return;
     }
-    // *** 新增：检查必要的元数据字段是否存在 ***
-    if (!context.userName || !context.characterName || !context.chatMetadata) {
+
+    // --- 修正：检查必要的元数据字段是否存在，使用正确的属性名 ---
+    // 优先使用 userAlias，否则用 name1 作为用户名。角色名用 name2。
+    const userName = context.userAlias || context.name1; // 获取用户名
+    const characterName = context.name2; // 获取角色名
+
+    // 检查获取到的名字和 chatMetadata 是否有效
+    if (!userName || !characterName || !context.chatMetadata) {
          toastr.error('无法获取完整的聊天元数据 (用户名/角色名/元数据对象) 以生成兼容格式。');
-         console.error(`${pluginName}: handleExportFavoritesJsonl - Missing userName, characterName, or chatMetadata in context`);
+         console.error(`${pluginName}: handleExportFavoritesJsonl - Missing userName (from userAlias/name1), characterName (from name2), or chatMetadata in context`, { userName, characterName, chatMetadata: context.chatMetadata });
          return;
     }
-
+    // --- 修正结束 ---
 
     toastr.info('正在准备导出收藏 (JSONL)...', '导出中');
 
@@ -1194,7 +1199,7 @@ async function handleExportFavoritesJsonl() {
         });
 
         // 2. 初始化消息对象数组...
-        const exportMessageObjects = []; // 只存储消息对象
+        const exportMessageObjects = [];
         let exportedMessageCount = 0;
 
         // 3. 遍历并获取消息 (使用深拷贝)...
@@ -1204,7 +1209,7 @@ async function handleExportFavoritesJsonl() {
             if (favItem.messageId !== undefined && favItem.messageId !== null) {
                  messageIndex = parseInt(favItem.messageId, 10);
             }
-             if (isNaN(messageIndex) || messageIndex < 0) continue; // 跳过无效
+             if (isNaN(messageIndex) || messageIndex < 0) continue;
 
             let message = null;
             if (messageIndex < context.chat.length) {
@@ -1213,8 +1218,8 @@ async function handleExportFavoritesJsonl() {
 
             if (message) {
                 try {
-                    const messageCopy = JSON.parse(JSON.stringify(message)); // 深拷贝
-                    exportMessageObjects.push(messageCopy); // 只添加消息对象
+                    const messageCopy = JSON.parse(JSON.stringify(message));
+                    exportMessageObjects.push(messageCopy);
                     exportedMessageCount++;
                 } catch (copyError) {
                      console.error(`[${pluginName}] JSONL Export - Error deep copying message index ${messageIndex}:`, copyError);
@@ -1228,28 +1233,20 @@ async function handleExportFavoritesJsonl() {
             toastr.warning('未能找到任何可导出的收藏消息...'); return;
         }
 
-        // *** 5. 创建元数据对象 ***
-        // 注意：我们直接使用当前的 context.chatMetadata。这可能包含旧的/完整的收藏列表，
-        // 但这是为了匹配原生格式。如果想让这里的 favorites 只反映导出的消息，需要额外处理。
-        // 为了简单和兼容性，先直接用当前的。
+        // --- 5. 创建元数据对象，使用正确的名字 ---
         const metadataObject = {
-            user_name: context.userName, // 从 context 获取用户名
-            character_name: context.characterName, // 从 context 获取角色名
-            //create_date: timestampToMoment(Date.now()).format('YYYY-MM-DD@HH[h]mm[m]ss[s]'), // 可选：添加导出时的创建日期
+            user_name: userName,             // 使用获取到的用户名
+            character_name: characterName,     // 使用获取到的角色名
             chat_metadata: context.chatMetadata // 使用当前的 chatMetadata
         };
+        // --- 修正结束 ---
 
-        // *** 6. 生成最终的 JSONL 文本 ***
+        // 6. 生成最终的 JSONL 文本...
         let exportedJsonlText = '';
         try {
-            // 第一行：元数据 JSON 字符串
             const metadataLine = JSON.stringify(metadataObject);
-            // 后续行：每个收藏消息的 JSON 字符串
             const messageLines = exportMessageObjects.map(obj => JSON.stringify(obj)).join('\n');
-
-            // 组合：元数据行 + 换行符 + 消息行 + 最终换行符
             exportedJsonlText = metadataLine + '\n' + messageLines + '\n';
-
             console.log(`[${pluginName}] JSONL Export - JSONL text generated successfully (with metadata line).`);
         } catch (stringifyError) {
             console.error(`[${pluginName}] JSONL Export - Error stringifying objects:`, stringifyError);
@@ -1258,10 +1255,10 @@ async function handleExportFavoritesJsonl() {
 
         // 7. 创建 Blob 并触发下载...
         const blob = new Blob([exportedJsonlText], { type: 'application/jsonlines;charset=utf-8' });
-        const chatName = context.characterId ? context.name2 : (context.groups?.find(g => g.id === context.groupId)?.name || '群聊');
+        // 使用 characterName (从 context.name2 获取) 来生成文件名
+        const safeChatName = String(characterName).replace(/[\\/:*?"<>|]/g, '_');
         const exportDate = timestampToMoment(Date.now()).format('YYYYMMDD_HHmmss');
-        const safeChatName = String(chatName).replace(/[\\/:*?"<>|]/g, '_');
-        const filename = `${safeChatName}_收藏_${exportDate}.jsonl`; // 文件名保持 .jsonl
+        const filename = `${safeChatName}_收藏_${exportDate}.jsonl`;
 
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
