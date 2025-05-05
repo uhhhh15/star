@@ -1270,15 +1270,10 @@ async function handleExportFavoritesWorldbook() {
                 // 如果找到了原始消息
                 exportedEntryCount++; // 计数增加
 
-                // 确定插入位置和角色
-                let position, role;
-                if (message.is_user) {
-                    position = 7; // @ D0 User (position = 6 + depth, role = user)
-                    role = "user";
-                } else {
-                    position = 8; // @ D0 Assistant (position = 6 + depth, role = assistant)
-                    role = "assistant";
-                }
+                // --- 修正：根据用户要求设置正确的插入位置和角色 ---
+                const position = 6; // @ D0 对应的 position 固定为 6
+                const role = message.is_user ? "user" : "assistant"; // 根据消息来源确定角色
+                // --- 修正结束 ---
 
                 // 创建世界书条目对象
                 const worldEntry = {
@@ -1293,23 +1288,23 @@ async function handleExportFavoritesWorldbook() {
                     selectiveLogic: 0, // 默认逻辑
                     addMemo: true, // UI 显示备注
                     order: messageIndex, // 使用消息索引作为插入顺序，保证按聊天顺序插入
-                    position: position, // 根据用户/角色设置插入位置 @ D0
+                    position: position, // *** 修正：设置为 6，代表 @ D ***
                     disable: false, // 条目启用
-                    excludeRecursion: false, // 允许被递归（虽然是常驻，意义不大）
+                    excludeRecursion: false, // 允许被递归（对常驻条目影响不大）
                     preventRecursion: true, // 阻止从此条目进一步递归（推荐）
                     delayUntilRecursion: false, // 不延迟
                     probability: 100, // 概率 100%
                     useProbability: false, // 禁用概率（因为是 100%）
-                    depth: null, // 扫描深度覆盖 (常驻条目不需要扫描)
+                    depth: null, // 扫描深度覆盖 (常驻条目不需要扫描，设为 null 或 0 均可)
                     group: "", // 不分组
                     groupOverride: false, // 不覆盖组设置
                     groupWeight: 100, // 默认组权重
-                    scanDepth: null, // 扫描深度 (常驻条目不需要)
+                    scanDepth: null, // 扫描深度 (常驻条目不需要扫描，设为 null 或 0 均可)
                     caseSensitive: null, // 使用全局大小写设置
                     matchWholeWords: null, // 使用全局全词匹配设置
                     useGroupScoring: null, // 使用全局组评分设置
                     automationId: "", // 无自动化 ID
-                    role: role, // @ D 位置的角色
+                    role: role, // *** 修正：配合 position=6，指定角色 'user' 或 'assistant' ***
                     sticky: 0, // 无粘滞
                     cooldown: 0, // 无冷却
                     delay: 0, // 无延迟
@@ -1367,8 +1362,6 @@ async function handleExportFavoritesWorldbook() {
     }
 }
 // --- 世界书导出函数结束 ---
-
-
 /**
  * Main entry point for the plugin
  */
