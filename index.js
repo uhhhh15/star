@@ -1217,7 +1217,8 @@ async function handleExportFavoritesJsonl() {
 /**
  * Handles exporting the favorited messages to a SillyTavern World Book (JSON) file.
  * 每个收藏的消息会转换为一个世界书条目，设置为常驻（蓝灯），按聊天顺序排序，
- * 并根据消息发送者插入为 @ D0 User 或 @ D0 Assistant。
+ * depth 设为 0，并根据消息发送者插入为 @ D0 (position: 6)，
+ * role 分别设为 1 (User) 或 2 (Assistant)。
  */
 async function handleExportFavoritesWorldbook() {
     // 函数开始，记录日志，标明导出格式
@@ -1270,10 +1271,11 @@ async function handleExportFavoritesWorldbook() {
                 // 如果找到了原始消息
                 exportedEntryCount++; // 计数增加
 
-                // --- 修正：根据用户要求设置正确的插入位置和角色 ---
+                // --- 修改：根据用户最新要求设置 depth 和 role ---
                 const position = 6; // @ D0 对应的 position 固定为 6
-                const role = message.is_user ? "user" : "assistant"; // 根据消息来源确定角色
-                // --- 修正结束 ---
+                const roleValue = message.is_user ? 1 : 2; // 用户消息 role=1, AI消息 role=2
+                const depthValue = 0; // 明确设置 depth 为 0
+                // --- 修改结束 ---
 
                 // 创建世界书条目对象
                 const worldEntry = {
@@ -1288,23 +1290,23 @@ async function handleExportFavoritesWorldbook() {
                     selectiveLogic: 0, // 默认逻辑
                     addMemo: true, // UI 显示备注
                     order: messageIndex, // 使用消息索引作为插入顺序，保证按聊天顺序插入
-                    position: position, // *** 修正：设置为 6，代表 @ D ***
+                    position: position, // 设置为 6，代表 @ D
                     disable: false, // 条目启用
                     excludeRecursion: false, // 允许被递归（对常驻条目影响不大）
                     preventRecursion: true, // 阻止从此条目进一步递归（推荐）
                     delayUntilRecursion: false, // 不延迟
                     probability: 100, // 概率 100%
                     useProbability: false, // 禁用概率（因为是 100%）
-                    depth: null, // 扫描深度覆盖 (常驻条目不需要扫描，设为 null 或 0 均可)
+                    depth: depthValue, // *** 修改：明确设置为 0 ***
                     group: "", // 不分组
                     groupOverride: false, // 不覆盖组设置
                     groupWeight: 100, // 默认组权重
-                    scanDepth: null, // 扫描深度 (常驻条目不需要扫描，设为 null 或 0 均可)
+                    scanDepth: null, // 扫描深度覆盖 (常驻条目不需要扫描，设为 null 或 0 均可)
                     caseSensitive: null, // 使用全局大小写设置
                     matchWholeWords: null, // 使用全局全词匹配设置
                     useGroupScoring: null, // 使用全局组评分设置
                     automationId: "", // 无自动化 ID
-                    role: role, // *** 修正：配合 position=6，指定角色 'user' 或 'assistant' ***
+                    role: roleValue, // *** 修改：配合 position=6，指定角色 1 (User) 或 2 (Assistant) ***
                     sticky: 0, // 无粘滞
                     cooldown: 0, // 无冷却
                     delay: 0, // 无延迟
@@ -1328,21 +1330,18 @@ async function handleExportFavoritesWorldbook() {
         }
 
         // --- 将世界书数据序列化为格式化的 JSON 字符串 ---
-        // 使用 JSON.stringify 并设置第三个参数为 2，实现带缩进的美观格式
         const exportedJsonText = JSON.stringify(worldbookData, null, 2);
 
         // --- 创建 Blob 对象并触发下载 ---
-        // 指定 MIME 类型为 application/json
         const blob = new Blob([exportedJsonText], { type: 'application/json;charset=utf-8' });
 
         // 生成文件名
         const chatName = context.characterId ? context.name2 : (context.groups?.find(g => g.id === context.groupId)?.name || '群聊');
         const exportDate = timestampToMoment(Date.now()).format('YYYYMMDD_HHmmss');
         const safeChatName = String(chatName).replace(/[\\/:*?"<>|]/g, '_');
-        // 文件名后缀为 .json，并标明是世界书
         const filename = `${safeChatName}_收藏世界书_${exportDate}.json`;
 
-        // 使用与之前相同的下载机制
+        // 下载机制
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
         link.download = filename;
@@ -1351,12 +1350,12 @@ async function handleExportFavoritesWorldbook() {
         document.body.removeChild(link);
         URL.revokeObjectURL(link.href);
 
-        // 记录成功日志并提示用户，标明导出格式和数量
+        // 记录成功日志并提示用户
         console.log(`${pluginName}: handleExportFavoritesWorldbook - 成功导出 ${exportedEntryCount} 条收藏消息到 ${filename} (世界书 JSON)`);
         toastr.success(`已成功导出 ${exportedEntryCount} 条收藏消息到文件 "${filename}" (世界书 JSON)`, '导出完成');
 
     } catch (error) {
-        // 如果导出过程中发生任何错误
+        // 错误处理
         console.error(`${pluginName}: handleExportFavoritesWorldbook - 导出过程中发生错误:`, error);
         toastr.error(`导出收藏 (世界书 JSON) 时发生错误: ${error.message || '未知错误'}`);
     }
