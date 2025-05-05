@@ -1272,7 +1272,7 @@ async function handleExportFavoritesWorldbook() {
                 exportedEntryCount++; // 计数增加
 
                 // --- 修改：根据用户最新要求设置 depth 和 role ---
-                const position = 4; // @ D0 对应的 position 固定为 6
+                const position = 4; // @ D0 对应的 position 固定为 4
                 const roleValue = message.is_user ? 1 : 2; // 用户消息 role=1, AI消息 role=2
                 const depthValue = 0; // 明确设置 depth 为 0
                 // --- 修改结束 ---
@@ -1290,7 +1290,7 @@ async function handleExportFavoritesWorldbook() {
                     selectiveLogic: 0, // 默认逻辑
                     addMemo: true, // UI 显示备注
                     order: messageIndex, // 使用消息索引作为插入顺序，保证按聊天顺序插入
-                    position: position, // 设置为 6，代表 @ D
+                    position: position, // 设置为 4，代表 @ D
                     disable: false, // 条目启用
                     excludeRecursion: false, // 允许被递归（对常驻条目影响不大）
                     preventRecursion: true, // 阻止从此条目进一步递归（推荐）
@@ -1306,7 +1306,7 @@ async function handleExportFavoritesWorldbook() {
                     matchWholeWords: null, // 使用全局全词匹配设置
                     useGroupScoring: null, // 使用全局组评分设置
                     automationId: "", // 无自动化 ID
-                    role: roleValue, // *** 修改：配合 position=6，指定角色 1 (User) 或 2 (Assistant) ***
+                    role: roleValue, // *** 修改：配合 position=4，指定角色 1 (User) 或 2 (Assistant) ***
                     sticky: 0, // 无粘滞
                     cooldown: 0, // 无冷却
                     delay: 0, // 无延迟
