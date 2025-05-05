@@ -1493,9 +1493,21 @@ jQuery(async () => {
         try {
             const inputButtonHtml = await renderExtensionTemplateAsync(`third-party/${pluginName}`, 'input_button');
             $('#data_bank_wand_container').append(inputButtonHtml);
-            $('#favorites_button').on('click', () => showFavoritesPopup());
+            console.log(`${pluginName}: 已将按钮添加到 #data_bank_wand_container`);
+            $('#favorites_button').on('click', () => {
+                showFavoritesPopup();
+            });
         } catch (error) {
             console.error(`${pluginName}: 加载或注入 input_button.html 失败:`, error);
+        }
+
+        // Add settings to extension settings
+        try {
+            const settingsHtml = await renderExtensionTemplateAsync(`third-party/${pluginName}`, 'settings_display');
+            $('#extensions_settings').append(settingsHtml);
+            console.log(`${pluginName}: 已将设置 UI 添加到 #extensions_settings`);
+        } catch (error) {
+            console.error(`${pluginName}: 加载或注入 settings_display.html 失败:`, error);
         }
 
         // Set up event delegation for favorite toggle icon
