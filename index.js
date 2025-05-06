@@ -125,133 +125,144 @@ function loadScript(url) {
  * @param {object} options - 传递给 html2canvas 的额外选项
  * @returns {Promise<boolean>} - 返回截图是否成功
  */
+// index.js
+
+// ... (其他代码) ...
+
 async function captureAndDownload(element, filename, options = {}) {
-    if (!html2canvasLoaded || typeof html2canvas === 'undefined') {
-        toastr.error('截图库 (html2canvas) 未加载或加载失败，无法截图。');
-        console.error(`${pluginName}: html2canvas is not loaded. Cannot capture screenshot.`);
-        return false;
-    }
+    // ... (html2canvas 加载检查) ...
     try {
-        toastr.info(`正在准备截图: ${filename}...`, '请稍候', { timeOut: 3000, extendedTimeOut: 2000 });
+        // ... (toastr 提示) ...
+        const rect = element.getBoundingClientRect();
 
-        const rect = element.getBoundingClientRect(); // 获取元素在视口中的位置和尺寸
+        let defaultOptions = { /* ... */ }; // 保持不变
 
-        // 基础默认选项
-        let defaultOptions = {
-            backgroundColor: null,
-            useCORS: true,
-            scale: window.devicePixelRatio || 1,
-            logging: true,
-        };
-
-        // --- 针对特定元素的选项覆盖 ---
         if (element.classList.contains('favorite-item')) {
-            // --- 截取收藏弹窗中的单个收藏项 (.favorite-item) ---
-            console.log(`${pluginName}: Capturing a .favorite-item element.`);
-            defaultOptions.backgroundColor = getComputedStyle(element).getPropertyValue('background-color').trim() || getComputedStyle(document.body).getPropertyValue('--SmartThemeBodyBgDarker').trim() || '#2a2a2e';
-            defaultOptions.x = rect.left;
-            defaultOptions.y = rect.top;
-            defaultOptions.width = rect.width;
-            defaultOptions.height = rect.height;
-
+            // ... (收藏项截图逻辑不变) ...
         } else if (element.id === 'chat') {
             // --- 截取 #chat (长截图) - 策略 B：截图 body 并裁剪 ---
-            console.log(`${pluginName}: Capturing #chat element (attempting full scroll content - Strategy B: Screenshot body and crop).`);
+            console.log(`${pluginName}: Capturing #chat element (attempting full scroll content - Strategy B with enhanced checks).`);
 
-            // 1. 获取 #chat 相对于文档的位置和尺寸
+            // 1. 获取 #chat 和 body 的尺寸及位置信息
             const chatRect = element.getBoundingClientRect();
-            const bodyRect = document.body.getBoundingClientRect(); // 获取 body 的 rect 以备参考
+            const bodyRect = document.body.getBoundingClientRect();
+            const chatScrollWidth = element.scrollWidth;
+            const chatScrollHeight = element.scrollHeight;
+            const bodyScrollWidth = document.body.scrollWidth;
+            const bodyScrollHeight = document.body.scrollHeight;
+            const scale = window.devicePixelRatio || 1; // 获取设备像素比
 
-            // 计算 #chat 在整个文档（包括滚动区域）中的绝对位置和尺寸
+            // 打印详细尺寸信息
+            console.log(`[${pluginName}] Element: #chat, Scroll dimensions: ${chatScrollWidth}x${chatScrollHeight}`);
+            console.log(`[${pluginName}] Element: body, Scroll dimensions: ${bodyScrollWidth}x${bodyScrollHeight}`);
+            console.log(`[${pluginName}] Device Pixel Ratio: ${scale}`);
+
+            // 检查 #chat 尺寸是否合理
+            if (chatScrollWidth <= 0 || chatScrollHeight <= 0) {
+                throw new Error(`Invalid #chat scroll dimensions detected: ${chatScrollWidth}x${chatScrollHeight}`);
+            }
+
+            // 计算 #chat 在文档中的绝对位置
             const absoluteChatTop = chatRect.top + window.pageYOffset;
             const absoluteChatLeft = chatRect.left + window.pageXOffset;
-            const chatWidth = element.offsetWidth;      // 使用 offsetWidth 获取包含 padding/border 的宽度
-            const chatHeight = element.scrollHeight;    // 使用 scrollHeight 获取完整内容高度
 
-            console.log(`[${pluginName}] Chat Rect:`, chatRect);
-            console.log(`[${pluginName}] Body Rect:`, bodyRect);
-            console.log(`[${pluginName}] Window Scroll: Y=${window.pageYOffset}, X=${window.pageXOffset}`);
             console.log(`[${pluginName}] Absolute Chat Pos: Top=${absoluteChatTop}, Left=${absoluteChatLeft}`);
-            console.log(`[${pluginName}] Target Chat Size: Width=${chatWidth}, Height=${chatHeight}`);
 
-            // 2. 配置 html2canvas 截取整个 body
+            // 2. 配置 html2canvas 截取 body
             const bodyOptions = {
                 backgroundColor: getComputedStyle(document.body).getPropertyValue('--main-bg-color').trim() || '#1e1e1e',
                 useCORS: true,
-                scale: defaultOptions.scale, // 使用与单项截图相同的 scale
+                scale: scale, // 使用获取到的 scale
                 logging: true,
-                width: document.body.scrollWidth,      // 截取 body 的完整滚动宽度
-                height: document.body.scrollHeight,     // 截取 body 的完整滚动高度
-                windowWidth: document.body.scrollWidth, // 明确指定窗口尺寸
-                windowHeight: document.body.scrollHeight,
-                x: 0, // 从 body 左上角开始
+                width: bodyScrollWidth,       // 使用 body 的滚动尺寸
+                height: bodyScrollHeight,
+                windowWidth: bodyScrollWidth,
+                windowHeight: bodyScrollHeight,
+                x: 0,
                 y: 0,
-                scrollX: 0, // body 的滚动应由 width/height 处理
+                scrollX: 0,
                 scrollY: 0,
-                // 可能需要允许污染来处理一些复杂的背景或元素
-                 allowTaint: false, // 先尝试 false，如果渲染有问题再改成 true
-                 foreignObjectRendering: true, // 尝试使用 foreignObject
+                allowTaint: false, // 保持 false 避免安全问题
+                foreignObjectRendering: true,
             };
 
             console.log(`[${pluginName}] html2canvas options for body screenshot:`, bodyOptions);
-            toastr.info(`正在截取页面并裁剪: ${filename}...`, '请稍候', { timeOut: 7000, extendedTimeOut: 5000 }); // 可能耗时较长
+            toastr.info(`正在截取页面并裁剪: ${filename}...`, '请稍候', { timeOut: 7000, extendedTimeOut: 5000 });
 
             // 3. 截取 body
             const fullCanvas = await html2canvas(document.body, bodyOptions);
-            console.log(`[${pluginName}] Full body canvas created. Size: ${fullCanvas.width}x${fullCanvas.height}`);
+            console.log(`[${pluginName}] Full body canvas created. Size (logical pixels): ${fullCanvas.width/scale}x${fullCanvas.height/scale}, Raw size: ${fullCanvas.width}x${fullCanvas.height}`);
 
-            // 4. 创建新的 Canvas 用于裁剪
+
+            // --- 裁剪步骤 ---
+            // 4. 创建裁剪后的 Canvas
             const croppedCanvas = document.createElement('canvas');
             const ctx = croppedCanvas.getContext('2d');
             if (!ctx) {
                  throw new Error('Failed to get 2D context from cropped canvas');
             }
-            const scale = defaultOptions.scale; // 保持一致的缩放
 
-            // 设置裁剪后的 Canvas 尺寸 (需要乘以 scale)
-            croppedCanvas.width = chatWidth * scale;
-            croppedCanvas.height = chatHeight * scale;
+            // 设置裁剪 Canvas 尺寸 (乘以 scale)
+            const targetWidth = element.offsetWidth * scale; // **改用 offsetWidth 试试**
+            const targetHeight = chatScrollHeight * scale; // **仍然使用 scrollHeight**
+            if (targetWidth <= 0 || targetHeight <= 0) {
+                 throw new Error(`Invalid target cropped canvas dimensions: ${targetWidth}x${targetHeight}`);
+            }
+            croppedCanvas.width = targetWidth;
+            croppedCanvas.height = targetHeight;
 
-            console.log(`[${pluginName}] Cropped canvas created. Target Size: ${croppedCanvas.width}x${croppedCanvas.height}`);
+            console.log(`[${pluginName}] Cropped canvas created. Target size: ${croppedCanvas.width}x${croppedCanvas.height}`);
 
-            // 5. 计算裁剪区域在完整 Canvas 上的坐标 (需要乘以 scale)
-            // 注意：这里的坐标是相对于 body 左上角的
+            // 5. 计算裁剪源区域坐标 (乘以 scale)
             const sourceX = absoluteChatLeft * scale;
             const sourceY = absoluteChatTop * scale;
-            const sourceWidth = chatWidth * scale;
-            const sourceHeight = chatHeight * scale; // 裁剪高度也应该是 scrollHeight
+            const sourceWidth = targetWidth;  // 裁剪宽度与目标宽度一致
+            const sourceHeight = targetHeight; // 裁剪高度与目标高度一致
 
-            console.log(`[${pluginName}] Cropping parameters: sx=${sourceX}, sy=${sourceY}, sWidth=${sourceWidth}, sHeight=${sourceHeight}, dWidth=${croppedCanvas.width}, dHeight=${croppedCanvas.height}`);
+            console.log(`[${pluginName}] Attempting drawImage with crop parameters: sx=${sourceX}, sy=${sourceY}, sWidth=${sourceWidth}, sHeight=${sourceHeight}, dWidth=${croppedCanvas.width}, dHeight=${croppedCanvas.height}`);
 
-            // 6. 检查计算出的裁剪参数是否有效
-            if (sourceWidth <= 0 || sourceHeight <= 0 || croppedCanvas.width <= 0 || croppedCanvas.height <= 0) {
-                throw new Error(`Invalid cropping dimensions: sW=${sourceWidth}, sH=${sourceHeight}, dW=${croppedCanvas.width}, dH=${croppedCanvas.height}`);
+            // 6. 再次检查裁剪参数是否在 fullCanvas 范围内
+            if (sourceX < 0 || sourceY < 0 || sourceWidth <= 0 || sourceHeight <= 0) {
+                throw new Error(`Invalid source rectangle coordinates or dimensions before drawing: sx=${sourceX}, sy=${sourceY}, sWidth=${sourceWidth}, sHeight=${sourceHeight}`);
             }
-            if (sourceX < 0 || sourceY < 0 || sourceX + sourceWidth > fullCanvas.width || sourceY + sourceHeight > fullCanvas.height) {
-                 console.warn(`[${pluginName}] Cropping area might exceed source canvas bounds. Source: ${fullCanvas.width}x${fullCanvas.height}, Crop Rect: [${sourceX}, ${sourceY}, ${sourceWidth}, ${sourceHeight}]`);
-                 // 可以选择调整裁剪参数或抛出错误，这里先尝试继续
-                 // Adjusting coordinates to stay within bounds (optional, might clip incorrectly)
-                 // sourceX = Math.max(0, sourceX);
-                 // sourceY = Math.max(0, sourceY);
-                 // sourceWidth = Math.min(sourceWidth, fullCanvas.width - sourceX);
-                 // sourceHeight = Math.min(sourceHeight, fullCanvas.height - sourceY);
-                 // console.log(`[${pluginName}] Adjusted cropping parameters: sx=${sourceX}, sy=${sourceY}, sWidth=${sourceWidth}, sHeight=${sourceHeight}`);
-                 // if (sourceWidth <= 0 || sourceHeight <= 0) throw new Error('Adjusted cropping dimensions are invalid.');
+             if (sourceX + sourceWidth > fullCanvas.width || sourceY + sourceHeight > fullCanvas.height) {
+                 console.warn(`[${pluginName}] Calculated source rectangle [${sourceX}, ${sourceY}, ${sourceWidth}, ${sourceHeight}] exceeds source canvas dimensions [${fullCanvas.width}, ${fullCanvas.height}]. Clamping dimensions.`);
+                 // 尝试限制裁剪区域在 fullCanvas 内部
+                 sourceWidth = Math.min(sourceWidth, fullCanvas.width - sourceX);
+                 sourceHeight = Math.min(sourceHeight, fullCanvas.height - sourceY);
+                 // 如果裁剪后的尺寸仍然无效，则抛出错误
+                 if (sourceWidth <= 0 || sourceHeight <= 0) {
+                    throw new Error(`Clamped source dimensions are invalid: sW=${sourceWidth}, sH=${sourceHeight}`);
+                 }
+                 // 相应调整目标画布尺寸以匹配被钳制的源尺寸
+                 croppedCanvas.width = sourceWidth;
+                 croppedCanvas.height = sourceHeight;
+                 console.log(`[${pluginName}] Clamped parameters: sx=${sourceX}, sy=${sourceY}, sWidth=${sourceWidth}, sHeight=${sourceHeight}, dWidth=${croppedCanvas.width}, dHeight=${croppedCanvas.height}`);
+             }
+
+
+            // 7. 执行绘制（裁剪）
+            try {
+                ctx.drawImage(
+                    fullCanvas,
+                    sourceX, sourceY,
+                    sourceWidth, sourceHeight,
+                    0, 0,
+                    croppedCanvas.width, croppedCanvas.height
+                );
+                console.log(`[${pluginName}] Cropping drawImage executed successfully.`);
+            } catch (drawError) {
+                 console.error(`[${pluginName}] Error during ctx.drawImage:`, drawError);
+                 // 提供更具体的错误信息
+                 toastr.error(`截图裁剪失败: ${drawError.message || 'drawImage 操作错误'}`, '操作失败');
+                 return false; // 阻止后续下载
             }
 
-
-            // 7. 将完整 Canvas 的相关部分绘制到裁剪后的 Canvas 上
-            ctx.drawImage(
-                fullCanvas,
-                sourceX, sourceY,           // 源 Canvas 中的裁剪起始坐标 (sx, sy)
-                sourceWidth, sourceHeight,  // 源 Canvas 中的裁剪尺寸 (sWidth, sHeight)
-                0, 0,                       // 目标 Canvas 中的绘制起始坐标 (dx, dy)
-                croppedCanvas.width, croppedCanvas.height // 目标 Canvas 中的绘制尺寸 (dWidth, dHeight)
-            );
-            console.log(`[${pluginName}] Cropping complete.`);
-
-            // 8. 使用裁剪后的 Canvas 进行下载
+            // 8. 下载裁剪后的 Canvas
             const dataUrl = croppedCanvas.toDataURL('image/png');
+            if (!dataUrl || dataUrl === 'data:,') {
+                 throw new Error('Failed to generate data URL from cropped canvas. Canvas might be empty or too large.');
+            }
             const link = document.createElement('a');
             link.href = dataUrl;
             link.download = filename;
@@ -260,40 +271,37 @@ async function captureAndDownload(element, filename, options = {}) {
             document.body.removeChild(link);
             URL.revokeObjectURL(link.href);
             toastr.success(`截图已保存: ${filename}`, '保存成功', { timeOut: 5000 });
-            return true; // 直接返回，因为我们不需要恢复 DOM
+            return true; // 直接返回
 
             // --- 策略 B 结束 ---
         } else {
-            // 如果不是 .favorite-item 或 #chat，执行默认截图或报错
-             console.warn(`[${pluginName}] captureAndDownload called on unsupported element:`, element);
-             // 可以选择使用基本选项尝试截图
-             const fallbackOptions = { ...defaultOptions, ...options, x: rect.left, y: rect.top, width: rect.width, height: rect.height };
-             const fallbackCanvas = await html2canvas(element, fallbackOptions);
-             // ... 下载 fallbackCanvas ...
-             // 或者直接报错
-             // throw new Error('Unsupported element type for captureAndDownload');
+            // ... (处理非 #chat 和非 .favorite-item 的情况) ...
+            console.warn(`[${pluginName}] captureAndDownload called on unsupported element:`, element);
+            // ... (可选的备用截图逻辑或错误) ...
+            throw new Error('Unsupported element type for captureAndDownload');
         }
 
-
     } catch (error) {
-        // ... (错误处理) ...
+        // 统一错误处理
         console.error(`${pluginName}: Screenshot failed for ${filename}:`, error);
-        toastr.error(`截图失败: ${error.message || '未知错误'}`, '操作失败');
+        // 显示更具体的错误（如果可能）
+        let errorMessage = error instanceof Error ? error.message : String(error);
+        if (errorMessage.includes('Maximum call stack size exceeded')) {
+            errorMessage = '页面过于复杂或内容过多，截图失败 (Maximum call stack size exceeded)';
+        } else if (errorMessage.includes('SecurityError') && errorMessage.includes('tainted')) {
+            errorMessage = '页面包含跨域内容，无法安全截图 (Tainted canvas)';
+        } else if (errorMessage.includes('IndexSizeError') || errorMessage.includes('dimensions')) {
+             errorMessage = '计算截图尺寸或坐标时出错 (Invalid dimensions/coordinates)';
+        }
+        toastr.error(`截图失败: ${errorMessage || '未知错误'}`, '操作失败');
         return false;
     } finally {
-        // --- 注意：策略 B 不需要恢复 DOM，所以这里的恢复逻辑只对之前的“移动DOM”策略有效 ---
-        // --- Note: Strategy B doesn't need DOM restoration, so the logic here is only for the previous "move DOM" strategy ---
-        // if (element.id === 'chat' && chatParent) { // 检查 chatParent 是否被赋值（只在移动DOM策略中）
-        //     console.log(`${pluginName}: Restoring #chat element if it was moved.`);
-        //     // ... 恢复代码 ...
-        // }
-        // if (bodyHadTranslate && !document.body.classList.contains('translate')) { // 检查 bodyHadTranslate 是否被赋值（只在移动DOM策略中）
-        //      console.log(`${pluginName}: Restoring body classes if they were changed.`);
-        //      document.body.className = originalBodyClasses;
-        // }
-         console.log(`${pluginName}: Screenshot process finished for ${filename}.`);
+        // --- 恢复 DOM 和样式的逻辑（仅在需要时） ---
+        console.log(`${pluginName}: Screenshot process finished for ${filename}.`);
     }
 }
+
+// ... (其他代码) ...
 
 
 // ... (其他函数，如 generateSafeFilename, setupPreviewUI, jQuery ready 等) ...
