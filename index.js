@@ -96,7 +96,6 @@ function loadScript(url) {
  * @param {object} options - 传递给 html2canvas 的额外选项
  * @returns {Promise<boolean>} - 返回截图是否成功
  */
-// --- 新增：截图并下载的辅助函数 ---
 /**
  * --- 新增：截图并下载的辅助函数 ---
  * @param {HTMLElement} element - 要截图的 DOM 元素
@@ -111,203 +110,160 @@ async function captureAndDownload(element, filename, options = {}) {
         console.error(`${pluginName}: html2canvas is not loaded. Cannot capture screenshot.`);
         return false;
     }
-    try {
-        // 显示加载提示
-        toastr.info(`正在生成截图: ${filename}...`, '请稍候', { timeOut: 3000, extendedTimeOut: 2000 });
 
-        // --- 基础默认选项 ---
+    toastr.info(`正在生成截图: ${filename}...`, '请稍候', { timeOut: 3000, extendedTimeOut: 2000 });
+
+    // --- 用于存储和恢复临时修改的样式的辅助函数和数组 ---
+    const originalStyles = [];
+    function storeAndApplyStyle(el, prop, value) {
+        // 存储当前内联样式值，如果不存在则为 undefined
+        originalStyles.push({ el, prop, originalValue: el.style[prop] });
+        el.style[prop] = value;
+    }
+    function restoreOriginalStyles() {
+        // 按相反的顺序恢复，以处理嵌套的样式修改（尽管在这个简单实现中顺序不那么重要）
+        for (let i = originalStyles.length - 1; i >= 0; i--) {
+            const item = originalStyles[i];
+            item.el.style[item.prop] = item.originalValue;
+        }
+        originalStyles.length = 0; // 清空数组，以便下次调用
+    }
+    // --- 样式管理结束 ---
+
+    try {
+        // --- 基础默认 html2canvas 选项 ---
         let defaultOptions = {
-            backgroundColor: null, // 优先让html2canvas自动检测或使用元素背景
+            backgroundColor: null, // 默认让 html2canvas 尝试自动检测或使用元素背景
             useCORS: true,         // 处理可能的跨域图片（如头像）
             scale: window.devicePixelRatio || 1, // 使用设备像素比提高清晰度
-            logging: true,         // 打开日志进行调试
-            // 移除默认的 scrollX/Y 和 x/y，根据目标元素类型设置
+            logging: true,         // 打开日志进行调试 (生产环境可以考虑关闭)
+            scrollX: 0,            // 对于目标元素本身，通常从其内容的 (0,0) 点开始截取
+            scrollY: 0,            // 同上
+            // x, y, width, height 将根据具体情况在下面设置
         };
 
-        // --- 针对特定元素的选项覆盖 ---
+        // --- 针对特定元素的选项覆盖和预处理 ---
         if (element.classList.contains('favorite-item')) {
             // --- 截取收藏弹窗中的单个收藏项 (.favorite-item) ---
             console.log(`${pluginName}: Capturing a .favorite-item element.`);
-            
-            // 获取元素自身的计算背景色，如果透明则回退
+
+            // 1. 展开内部可能滚动的子元素 (如 .fav-preview)
+            const previewElement = element.querySelector('.fav-preview');
+            if (previewElement && previewElement.scrollHeight > previewElement.clientHeight) {
+                console.log(`${pluginName}: Expanding internal .fav-preview for screenshot.`);
+                storeAndApplyStyle(previewElement, 'height', previewElement.scrollHeight + 'px');
+                storeAndApplyStyle(previewElement, 'maxHeight', 'none'); // 移除最大高度限制
+                storeAndApplyStyle(previewElement, 'overflow', 'visible'); // 确保内容不被裁剪
+
+                // 同时，确保 .favorite-item 自身也能容纳展开后的内容
+                storeAndApplyStyle(element, 'height', 'auto');
+            }
+
+            // 等待一帧让浏览器应用样式并重绘
+            await new Promise(resolve => requestAnimationFrame(resolve));
+            await new Promise(resolve => setTimeout(resolve, 50)); // 额外的小延迟，有时有帮助
+
+            // 2. 背景色处理
             let bgColor = getComputedStyle(element).getPropertyValue('background-color').trim();
             if (!bgColor || bgColor === 'rgba(0, 0, 0, 0)' || bgColor === 'transparent') {
-                 // 尝试获取父级弹窗的背景色 (通常是 <dialog> 或其容器)
-                 const popupContainer = element.closest('.popup, dialog'); // 更通用的选择器
-                 if (popupContainer) {
-                    bgColor = getComputedStyle(popupContainer).getPropertyValue('background-color').trim();
-                 }
-                 // 如果弹窗也是透明，则使用更通用的备用色
-                 if (!bgColor || bgColor === 'rgba(0, 0, 0, 0)' || bgColor === 'transparent') {
-                    // 尝试从 :root 或 body 获取 --SmartThemeBodyBgDarker CSS 变量
-                    let bodyBgColor = getComputedStyle(document.documentElement).getPropertyValue('--SmartThemeBodyBgDarker').trim() ||
-                                      getComputedStyle(document.body).getPropertyValue('--SmartThemeBodyBgDarker').trim();
-                    if (bodyBgColor) {
-                        bgColor = bodyBgColor;
-                    } else {
-                        bgColor = '#2a2a2e'; // 最终备用色
-                    }
-                 }
+                const popupDialog = element.closest('dialog.popup'); // 查找父级 <dialog>
+                if (popupDialog) {
+                    bgColor = getComputedStyle(popupDialog).getPropertyValue('background-color').trim();
+                }
+                // 如果 <dialog> 也是透明或未找到，尝试获取主题变量或使用最终备用色
+                if (!bgColor || bgColor === 'rgba(0, 0, 0, 0)' || bgColor === 'transparent') {
+                    bgColor = getComputedStyle(document.documentElement).getPropertyValue('--SmartThemeBodyBgDarker').trim() ||
+                              getComputedStyle(document.body).getPropertyValue('--SmartThemeBodyBgDarker').trim() ||
+                              '#2a2a2e'; // 最终备用色
+                }
             }
             defaultOptions.backgroundColor = bgColor;
 
-            // **调整点 1：对于单个元素截图，不再手动设置 x, y, width, height 选项。**
-            // 让 html2canvas 直接渲染传入的 `element`，它会尝试捕获该元素的全部内容。
-            // 这些属性之前是基于 getBoundingClientRect()，这对于有 transform 的弹窗内元素可能不准确。
-            // (由于 defaultOptions 中未预设这些，所以无需 delete，仅作说明。但要确保外部 options 不会覆盖)
-            if (options.x !== undefined) delete options.x;
-            if (options.y !== undefined) delete options.y;
-            if (options.width !== undefined) delete options.width;
-            if (options.height !== undefined) delete options.height;
-
+            // 3. 尺寸和位置：对于弹窗内元素，使用 getBoundingClientRect 获取其在视口中的位置和尺寸。
+            // 这是因为弹窗（尤其是 <dialog>）可能有 transform 或特殊定位，
+            // 直接让 html2canvas 渲染元素可能无法正确定位。
+            const rect = element.getBoundingClientRect();
+            defaultOptions.x = rect.left;
+            defaultOptions.y = rect.top;
+            defaultOptions.width = rect.width;
+            defaultOptions.height = rect.height;
+            // 注意：如果 <dialog> 元素应用了 transform (如 scale)，此方法仍可能不完美，
+            // html2canvas 对 transform 的处理有时会有偏差。
 
         } else if (element.id === 'chat') {
-            // --- 截取 #chat (长截图) ---
-            console.log(`${pluginName}: Capturing #chat element (attempting full scroll content).`);
+            // --- 截取 #chat (长截图 - 假设已在调用方正确展开) ---
+            console.log(`${pluginName}: Capturing #chat element (expecting it to be pre-expanded by caller).`);
 
             // 背景色处理
             let chatBgColor = getComputedStyle(element).getPropertyValue('background-color').trim();
             if (!chatBgColor || chatBgColor === 'rgba(0, 0, 0, 0)' || chatBgColor === 'transparent') {
-                 // 尝试从 :root 或 body 获取 --main-bg-color CSS 变量
-                let mainBgColor = getComputedStyle(document.documentElement).getPropertyValue('--main-bg-color').trim() ||
-                                  getComputedStyle(document.body).getPropertyValue('--main-bg-color').trim();
-                if (mainBgColor) {
-                    chatBgColor = mainBgColor;
-                } else {
-                    chatBgColor = '#1e1e1e'; // 主题变量或备用色
-                }
+                chatBgColor = getComputedStyle(document.documentElement).getPropertyValue('--main-bg-color').trim() ||
+                              getComputedStyle(document.body).getPropertyValue('--main-bg-color').trim() ||
+                              '#1e1e1e'; // 主题变量或备用色
             }
             defaultOptions.backgroundColor = chatBgColor;
 
-            // **调整点 2：长截图的关键选项**
-            // 确保传入的 element 确实是可滚动的容器本身
-            defaultOptions.width = element.scrollWidth;           // 画布宽度设为元素内容的总宽度
-            defaultOptions.height = element.scrollHeight;          // 画布高度设为元素内容的总高度
-            defaultOptions.windowWidth = element.scrollWidth;      // 渲染窗口宽度设为元素内容总宽度
-            defaultOptions.windowHeight = element.scrollHeight;     // 渲染窗口高度设为元素内容总高度
-            
-            // 当直接截取 element 时，x 和 y 通常相对于 element 本身的左上角，所以是 0。
-            defaultOptions.x = 0;
-            defaultOptions.y = 0;
-            
-            // 元素自身的滚动位置。对于“完整长截图”，通常是从 (0,0) 开始截取。
-            defaultOptions.scrollX = 0; 
-            defaultOptions.scrollY = 0;
-
-            // --- 重要提示：关于长截图 ---
-            // 为了让 html2canvas 正确捕获 #chat 的全部滚动内容，
-            // **调用此函数前**，你需要在调用方执行以下操作：
+            // **关键：对于长截图，调用方必须负责在调用此函数前：**
+            // 1. 将 `#chat` 元素的 `height` 设置为其 `scrollHeight`。
+            // 2. 将 `#chat` 元素的 `overflow` (及 `overflowY`) 设置为 `visible`。
+            // 3. 将 `#chat` 元素的所有会裁剪它的父容器的 `overflow` 设置为 `visible`，
+            //    并可能需要将其父容器的 `height` 设置为 `auto` 或足够大。
+            // 4. 在修改样式后，等待 `requestAnimationFrame` 和一个小的 `setTimeout` 以确保浏览器重绘。
             //
-            // 示例 (在 screenshotAllButton.on('click', ...) 回调中):
-            //
-            // const chatElement = document.getElementById('chat');
-            // if (chatElement) {
-            //     const originalStyles = {
-            //         height: chatElement.style.height,
-            //         overflow: chatElement.style.overflow, // 或 overflowY, overflowX
-            //         // 可能还需要保存父容器的样式，如果 #chat 的尺寸受父容器的 overflow:hidden 限制
-            //     };
-            //
-            //     // 1. 展开元素以显示所有内容
-            //     chatElement.style.height = chatElement.scrollHeight + 'px';
-            //     chatElement.style.overflow = 'visible'; // 重要！确保内容不会被裁剪
-            //
-            //     // (可选，但推荐) 如果 #chat 的父容器有 overflow:hidden，也需要临时修改
-            //     // const parent = chatElement.parentElement;
-            //     // if (parent && getComputedStyle(parent).overflow === 'hidden') {
-            //     //    originalStyles.parentOverflow = parent.style.overflow;
-            //     //    parent.style.overflow = 'visible';
-            //     // }
-            //
-            //     // 等待一帧，确保样式应用和浏览器重绘 (非常重要)
-            //     await new Promise(resolve => requestAnimationFrame(resolve)); 
-            //
-            //     // 2. 调用截图函数
-            //     const success = await captureAndDownload(chatElement, filename, { /* h2cOptions */ });
-            //
-            //     // 3. 恢复原始样式 (无论成功与否)
-            //     chatElement.style.height = originalStyles.height;
-            //     chatElement.style.overflow = originalStyles.overflow;
-            //     // if (originalStyles.parentOverflow && parent) {
-            //     //    parent.style.overflow = originalStyles.parentOverflow;
-            //     // }
-            // }
-            //
-            // 这个 CSS 修改和恢复的逻辑应该在 captureAndDownload 的调用方处理，
-            // 以保持此函数的通用性，并确保样式正确恢复。
+            // 此函数假设 `element` (即 #chat) 已经是完全展开的状态。
+            defaultOptions.width = element.scrollWidth;        // 画布宽度设为元素内容的总宽度
+            defaultOptions.height = element.scrollHeight;      // 画布高度设为元素内容的总高度
+            defaultOptions.windowWidth = element.scrollWidth;  // 渲染窗口宽度也设为内容总宽度
+            defaultOptions.windowHeight = element.scrollHeight;// 渲染窗口高度也设为内容总高度
+            defaultOptions.x = 0; // 因为我们是从元素自身的 (0,0) 点开始截取其全部内容
+            defaultOptions.y = 0; // 同上
 
         } else {
-            // 如果不是 .favorite-item 或 #chat，执行默认截图或报错
-             console.warn(`[${pluginName}] captureAndDownload called on unsupported element:`, element);
-             // 对于未知元素，尝试使用其getBoundingClientRect来定义截图区域
-             // 注意：这对于有 transform 的元素可能仍然不准确
-             const rect = element.getBoundingClientRect();
-             const fallbackOptions = {
-                 ...defaultOptions, // 继承 scale, useCORS 等
-                 x: rect.left,
-                 y: rect.top,
-                 width: rect.width,
-                 height: rect.height,
-                 // 合并外部传入的 options，外部 options 优先级更高
-                 ...options
-             };
-             // 直接使用合并后的 fallbackOptions
-             const h2cOptions = fallbackOptions;
-             console.log(`[${pluginName}] html2canvas options for fallback "${filename}":`, h2cOptions, "Element:", element);
-             const fallbackCanvas = await html2canvas(element, h2cOptions);
-             
-             // 下载逻辑 (与下方主逻辑相同)
-             const dataUrl = fallbackCanvas.toDataURL('image/png');
-             if (!dataUrl || dataUrl === 'data:,') {
-                  throw new Error('未能从画布生成数据URL (fallback)。');
-             }
-             const link = document.createElement('a');
-             link.href = dataUrl;
-             link.download = filename;
-             document.body.appendChild(link);
-             link.click();
-             document.body.removeChild(link);
-             URL.revokeObjectURL(link.href);
-             toastr.success(`截图已保存 (fallback): ${filename}`, '保存成功');
-             return true;
+            // --- 其他未知类型的元素 (回退方案) ---
+            console.warn(`[${pluginName}] captureAndDownload called on an unsupported or generic element. Using getBoundingClientRect for dimensions.`, element);
+            const rect = element.getBoundingClientRect();
+            defaultOptions.x = rect.left;
+            defaultOptions.y = rect.top;
+            defaultOptions.width = rect.width;
+            defaultOptions.height = rect.height;
+
+            // 尝试获取背景色，否则使用通用备用色
+            let bgColor = getComputedStyle(element).getPropertyValue('background-color').trim();
+            if (!bgColor || bgColor === 'rgba(0, 0, 0, 0)' || bgColor === 'transparent') {
+                 bgColor = getComputedStyle(document.body).getPropertyValue('background-color').trim() || '#ffffff'; // 通用备用，例如白色
+            }
+            defaultOptions.backgroundColor = bgColor;
         }
         // --- 选项设置结束 ---
 
-
-        const h2cOptions = { ...defaultOptions, ...options }; // 合并基础选项和外部传入的特定选项
-        console.log(`[${pluginName}] html2canvas options for "${filename}":`, h2cOptions, "Element rect:", element.getBoundingClientRect(), "Element:", element);
+        // 合并基础选项和外部传入的特定选项 (外部 options 优先级更高)
+        const h2cOptions = { ...defaultOptions, ...options };
+        console.log(`[${pluginName}] Final html2canvas options for "${filename}":`, h2cOptions, "Target Element:", element);
 
         // 执行截图
         const canvas = await html2canvas(element, h2cOptions);
-        console.log(`[${pluginName}] Canvas created. Size: ${canvas.width}x${canvas.height}`); 
-
-        // --- 裁剪掉可能多余的底部缓冲区 (如果需要) ---
-        // (保持原有裁剪逻辑不变)
-        // if (element.id === 'chat' && buffer > 0 && canvas.height > element.scrollHeight * defaultOptions.scale) {
-        //     ...
-        // }
-
+        console.log(`[${pluginName}] Canvas created. Dimensions: ${canvas.width}x${canvas.height}`);
 
         // --- 下载逻辑 ---
         const dataUrl = canvas.toDataURL('image/png');
-        if (!dataUrl || dataUrl === 'data:,') {
+        if (!dataUrl || dataUrl === 'data:,') { // 检查生成的 Data URL 是否有效
              throw new Error('未能从画布生成数据URL。画布可能为空或过大。(Failed to generate data URL from canvas. Canvas might be empty or too large.)');
         }
         const link = document.createElement('a');
         link.href = dataUrl;
         link.download = filename;
-        document.body.appendChild(link);
+        document.body.appendChild(link); // 需要添加到 DOM 中才能触发点击 (在某些浏览器中)
         link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(link.href); // 释放对象 URL 内存
+        document.body.removeChild(link); // 清理
+        URL.revokeObjectURL(link.href); // 释放对象 URL 占用的内存
 
         // 显示成功提示
         toastr.success(`截图已保存: ${filename}`, '保存成功', { timeOut: 5000 });
         return true; // 返回成功状态
 
     } catch (error) {
-        // --- 修改后的 Catch 块 ---
-        console.error(`${pluginName}: Screenshot failed for ${filename}:`, error); // 打印原始错误对象
+        // --- 详细的错误处理 ---
+        console.error(`${pluginName}: Screenshot capture or download failed for ${filename}:`, error);
 
         let errorMessage = '未知错误 (Unknown error)';
         let errorType = 'Unknown';
@@ -315,60 +271,69 @@ async function captureAndDownload(element, filename, options = {}) {
         if (error instanceof Error) {
             errorMessage = error.message;
             errorType = error.name;
-            // 尝试识别常见错误类型
+            // 尝试识别一些常见的 html2canvas 相关错误
             if (errorMessage.includes('Maximum call stack size exceeded')) {
-                errorMessage = '页面过于复杂或内容过多，截图失败';
+                errorMessage = '页面过于复杂或内容过多，导致截图引擎栈溢出。请尝试简化内容或分部分截图。';
             } else if (errorMessage.includes('SecurityError') && errorMessage.includes('tainted')) {
-                errorMessage = '页面包含跨域内容，无法安全截图 (Tainted canvas)';
-            } else if (errorMessage.includes('IndexSizeError') || errorMessage.includes('dimensions')) {
-                 errorMessage = '计算截图尺寸或坐标时出错';
+                errorMessage = '页面包含跨域内容（如图片或字体），且未正确配置CORS，导致画布被污染，无法安全导出。';
+            } else if (errorMessage.includes('IndexSizeError') || errorMessage.includes('dimensions') || errorMessage.includes('NaN')) {
+                 errorMessage = '计算截图尺寸、坐标或缩放比例时出错。可能是元素尺寸无效或过大。';
             }
-        } else if (error instanceof Event) {
-            // 如果捕获到的是 Event 对象
+        } else if (error instanceof Event) { // 有时 html2canvas 的错误会以 Event 对象的形式抛出
             errorType = 'Event';
-            errorMessage = `捕获到意外事件: ${error.type}`;
-            console.error(`[${pluginName}] Caught Event details:`, {
+            errorMessage = `捕获到意外事件: ${error.type}。`;
+            console.error(`[${pluginName}] Caught Event details during screenshot:`, {
                 type: error.type,
                 target: error.target, // 可能为 null
                 currentTarget: error.currentTarget, // 可能为 null
-                bubbles: error.bubbles,
-                cancelable: error.cancelable,
                 // @ts-ignore // error 对象可能不存在于所有 Event 类型上
-                error: error.error, // 如果是 ErrorEvent
+                errorDetails: error.error, // 如果是 ErrorEvent
                 // @ts-ignore
-                message: error.message // 某些自定义事件可能有
+                messageDetails: error.message // 某些自定义事件可能有
             });
-            // 如果是错误事件，尝试获取错误消息
             // @ts-ignore
             if (error.error instanceof Error) {
                  // @ts-ignore
-                 errorMessage += ` - 事件错误消息: ${error.error.message}`;
+                 errorMessage += ` 详细错误: ${error.error.message}`;
             // @ts-ignore
-            } else if (typeof error.message === 'string') { // 有些事件可能有 message 属性
+            } else if (typeof error.message === 'string' && error.message) {
                  // @ts-ignore
-                 errorMessage += ` - 事件消息: ${error.message}`;
+                 errorMessage += ` 事件消息: ${error.message}`;
             }
         } else {
             // 其他未知类型的错误
             try {
-                errorMessage = String(error); // 尝试转换为字符串
+                errorMessage = String(error);
                 errorType = typeof error;
             } catch (e) {
-                errorMessage = '无法识别的错误对象';
+                errorMessage = '无法识别的错误对象，且转换为字符串失败。';
             }
         }
 
-        console.error(`[${pluginName}] Identified Error Type: ${errorType}, Message: ${errorMessage}`);
-        toastr.error(`截图失败: ${errorMessage}`, '操作失败');
+        console.error(`[${pluginName}] Identified Screenshot Error Type: ${errorType}, Message: ${errorMessage}`);
+        toastr.error(`截图失败: ${errorMessage}`, '操作失败', { timeOut: 7000, extendedTimeOut: 3000 }); // 给用户更长时间阅读错误
         // --- Catch 块修改结束 ---
         return false;
     } finally {
-        // --- 注意：这里的恢复逻辑仅对移动DOM的策略有效 ---
-        // 对于 #chat 的 CSS 恢复，应该在调用方进行 (如注释中所述)
-        console.log(`${pluginName}: Screenshot process finished for ${filename}.`);
+        // --- 无论成功或失败，都恢复所有临时修改的样式 ---
+        restoreOriginalStyles();
+        console.log(`${pluginName}: Screenshot process finished for ${filename}. All temporary styles (if any) have been restored.`);
     }
 }
-
+Use code with caution.
+JavaScript
+关键点再次强调：
+样式管理 (originalStyles, storeAndApplyStyle, restoreOriginalStyles)： 这是确保在函数内对 DOM进行的临时样式修改能够被可靠恢复的核心。
+短截图 (.favorite-item)：
+内部滚动元素 (.fav-preview) 的展开逻辑已包含在函数内。
+使用 getBoundingClientRect() 来获取其在视口中的位置和尺寸，并传递给 html2canvas 的 x, y, width, height 选项。这对于处理有 transform 的弹窗（如 <dialog>）是比较推荐的做法，尽管并非完美。
+长截图 (#chat)：
+此函数本身不处理 #chat 及其父容器的展开。 它假设调用方已经完成了这些预处理步骤，并传入了一个完全展开的 #chat 元素。
+html2canvas 的 width, height, windowWidth, windowHeight 选项都基于传入的已展开元素的 scrollWidth 和 scrollHeight。
+x 和 y 选项设为 0。
+错误处理： 保持了之前比较详细的错误分类和提示。
+finally 块： 确保 restoreOriginalStyles() 总能被执行。
+请将此函数替换掉你项目中旧的 captureAndDownload 函数，并确保在调用它进行长截图时，调用方正确地实现了展开 #chat 及其父容器的逻辑（如之前讨论的 screenshotAllButton.on('click', ...) 中的修改）。
 // --- 新增：生成安全的文件名 ---
 function generateSafeFilename(baseName, type, identifier, extension = 'png') {
     const dateStr = timestampToMoment(Date.now()).format('YYYYMMDDHHmmss');
