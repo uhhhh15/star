@@ -110,112 +110,65 @@ function loadScript(url) {
  * @returns {Promise<boolean>} - 返回截图是否成功 (Returns whether the screenshot was successful)
  */
 async function captureAndDownload(element, filename, options = {}) {
-    // 检查 html2canvas 是否已加载 (Check if html2canvas is loaded)
-    if (!html2canvasLoaded || typeof html2canvas === 'undefined') {
-        toastr.error('截图库 (html2canvas) 未加载或加载失败，无法截图。 (Screenshot library (html2canvas) not loaded or failed to load, cannot take screenshot.)');
-        console.error(`${pluginName}: html2canvas is not loaded. Cannot capture screenshot.`);
-        return false;
-    }
+    // ... (检查 html2canvas 加载的代码) ...
     try {
-        // 显示加载提示 (Show loading notification)
-        toastr.info(`正在生成截图: ${filename}... (Generating screenshot: ${filename}...)`, '请稍候 (Please wait)', { timeOut: 3000, extendedTimeOut: 2000 });
-
-        // 获取元素在视口中的位置和尺寸 (Get element's position and size in viewport)
+        // ... (toastr提示) ...
         const rect = element.getBoundingClientRect();
 
-        // --- 基础默认选项 ---
-        // --- Base default options ---
         let defaultOptions = {
-            backgroundColor: null, // 优先让html2canvas自动检测或使用元素背景 (Prefer auto-detection or element background)
-            useCORS: true,         // 处理可能的跨域图片（如头像）(Handle potential cross-origin images like avatars)
-            scale: window.devicePixelRatio || 1, // 使用设备像素比提高清晰度 (Use device pixel ratio for better clarity)
-            logging: true,         // 打开日志进行调试 (Enable logging for debugging)
-            // 移除默认的 scrollX/Y 和 x/y，根据目标元素类型设置 (Remove default scrollX/Y and x/y, set based on element type)
+            backgroundColor: null,
+            useCORS: true,
+            scale: window.devicePixelRatio || 1,
+            logging: true,
         };
 
-        // --- 针对特定元素的选项覆盖 ---
-        // --- Option overrides for specific elements ---
         if (element.classList.contains('favorite-item')) {
-            // --- 截取收藏弹窗中的单个收藏项 (.favorite-item) ---
-            // --- Screenshotting a single favorite item (.favorite-item) in the popup ---
+            // ... (收藏项截图逻辑保持不变) ...
             console.log(`${pluginName}: Capturing a .favorite-item element.`);
-
-            // 尝试获取元素自身的计算背景色，如果透明则回退 (Try to get element's own computed background color, fallback if transparent)
-            defaultOptions.backgroundColor = getComputedStyle(element).getPropertyValue('background-color').trim();
-            if (!defaultOptions.backgroundColor || defaultOptions.backgroundColor === 'rgba(0, 0, 0, 0)' || defaultOptions.backgroundColor === 'transparent') {
-                 defaultOptions.backgroundColor = getComputedStyle(document.body).getPropertyValue('--SmartThemeBodyBgDarker').trim() || '#2a2a2e'; // 备用色 (Fallback color)
-            }
-
-            // 关键：对于弹窗内元素，明确指定其在视口中的位置和尺寸 (Key: For elements within a popup, specify their viewport position and size)
+            defaultOptions.backgroundColor = getComputedStyle(element).getPropertyValue('background-color').trim() || getComputedStyle(document.body).getPropertyValue('--SmartThemeBodyBgDarker').trim() || '#2a2a2e';
             defaultOptions.x = rect.left;
             defaultOptions.y = rect.top;
-            defaultOptions.width = rect.width;   // 或者使用 element.offsetWidth (Or use element.offsetWidth)
-            defaultOptions.height = rect.height; // 或者使用 element.offsetHeight (Or use element.offsetHeight)
-
-            // 注释掉 windowWidth/Height，让 canvas 尺寸自动匹配元素尺寸 (Comment out windowWidth/Height, let canvas size match element size)
-            // delete defaultOptions.windowWidth;
-            // delete defaultOptions.windowHeight;
+            defaultOptions.width = rect.width;
+            defaultOptions.height = rect.height;
 
         } else if (element.id === 'chat') {
-            // --- 截取预览聊天中的整个聊天区域 (#chat) ---
-            // --- Screenshotting the entire chat area (#chat) in preview mode ---
-            console.log(`${pluginName}: Capturing #chat element.`);
+            // --- 截取 #chat (长截图) ---
+            console.log(`${pluginName}: Capturing #chat element (attempting full scroll content).`);
 
-            // 尝试获取 #chat 自身的背景色，如果透明则获取 body 背景 (Try to get #chat's own background color, get body background if transparent)
+            // 背景色处理 (Background color handling)
             defaultOptions.backgroundColor = getComputedStyle(element).getPropertyValue('background-color').trim();
             if (!defaultOptions.backgroundColor || defaultOptions.backgroundColor === 'rgba(0, 0, 0, 0)' || defaultOptions.backgroundColor === 'transparent') {
-                defaultOptions.backgroundColor = getComputedStyle(document.body).getPropertyValue('--main-bg-color').trim() || '#1e1e1e'; // 主题变量或备用色 (Theme variable or fallback color)
+                defaultOptions.backgroundColor = getComputedStyle(document.body).getPropertyValue('--main-bg-color').trim() || '#1e1e1e';
             }
 
-            // 核心：截取整个可滚动内容区域 (Core: Screenshot the entire scrollable content area)
-            // 明确告诉 html2canvas 画布尺寸等于元素的滚动尺寸 (Explicitly tell html2canvas the canvas size equals element's scroll dimensions)
-            defaultOptions.width = element.scrollWidth;
-            defaultOptions.height = element.scrollHeight;
+            // --- 策略一：设置 windowHeight/Width 为滚动尺寸 ---
+            // --- Strategy 1: Set windowHeight/Width to scroll dimensions ---
+            defaultOptions.windowWidth = element.scrollWidth;
+            defaultOptions.windowHeight = element.scrollHeight;
 
-            // 对于全元素滚动截图，通常不需要设置 x, y (For full element scroll screenshots, x, y are usually not needed)
-            // 但如果页面本身滚动影响了元素位置，可能需要以下补偿 (But if page scroll affects element position, compensation might be needed)
-            // defaultOptions.scrollX = -window.pageXOffset; // 补偿页面水平滚动 (Compensate for page horizontal scroll)
-            // defaultOptions.scrollY = -window.pageYOffset; // 补偿页面垂直滚动 (Compensate for page vertical scroll)
+            // 当使用 windowHeight/Width 时，通常不需要再明确设置 width/height，
+            // html2canvas 会根据 window 尺寸来渲染。可以注释掉或删除它们。
+            // defaultOptions.width = element.scrollWidth;
+            // defaultOptions.height = element.scrollHeight;
 
-            // 备选方案：设置 windowWidth/Height (Alternative: Set windowWidth/Height)
-            // defaultOptions.windowWidth = element.scrollWidth;
-            // defaultOptions.windowHeight = element.scrollHeight;
-            // delete defaultOptions.width; // 让 html2canvas 根据 windowHeight/Width 推断 (Let html2canvas infer from windowHeight/Width)
-            // delete defaultOptions.height;
+            // 页面滚动补偿，如果 #chat 的位置受页面滚动影响，则可能需要取消注释
+            // Page scroll compensation, uncomment if #chat's position is affected by page scroll
+            // defaultOptions.scrollX = -window.pageXOffset;
+            // defaultOptions.scrollY = -window.pageYOffset;
+
+            // 通常不需要设置 x, y，因为我们希望从元素的(0,0)开始截取其全部内容
+            // Usually no need to set x, y as we want to capture from element's (0,0)
+            // defaultOptions.x = 0;
+            // defaultOptions.y = 0;
+            // --- 策略一结束 ---
         }
-        // --- 选项覆盖结束 ---
-        // --- End of option overrides ---
 
-        // 合并默认选项和传入的特定选项 (Merge default options and specific passed options)
         const h2cOptions = { ...defaultOptions, ...options };
         console.log(`[${pluginName}] html2canvas options for "${filename}":`, h2cOptions, "Element rect:", rect, "Element:", element);
 
-        // --- (可选/调试用) 尝试处理 dialog 的 transform ---
-        // --- (Optional/Debugging) Attempt to handle dialog's transform ---
-        const dialog = element.closest('dialog.popup');
-        let originalDialogTransform = ''; // 必须在 try 外部声明 (Must be declared outside try)
-        // if (dialog) {
-        //     originalDialogTransform = dialog.style.transform;
-        //     dialog.style.transform = 'none'; // 尝试临时移除 transform (Try temporarily removing transform)
-        //     await new Promise(resolve => requestAnimationFrame(resolve)); // 等待一帧应用样式 (Wait a frame for style application)
-        // }
-        // --- transform 处理结束 ---
-        // --- End of transform handling ---
-
-        // 执行截图 (Execute screenshot)
         const canvas = await html2canvas(element, h2cOptions);
 
-        // --- (可选/调试用) 恢复 dialog 的 transform ---
-        // --- (Optional/Debugging) Restore dialog's transform ---
-        // if (dialog) {
-        //     dialog.style.transform = originalDialogTransform; // 恢复 transform (Restore transform)
-        // }
-        // --- transform 恢复结束 ---
-        // --- End of transform restoration ---
-
-
-        // --- 下载逻辑 ---
-        // --- Download logic ---
+        // ... (下载逻辑) ...
         const dataUrl = canvas.toDataURL('image/png');
         const link = document.createElement('a');
         link.href = dataUrl;
@@ -223,25 +176,17 @@ async function captureAndDownload(element, filename, options = {}) {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        URL.revokeObjectURL(link.href); // 释放对象 URL 内存 (Release object URL memory)
-
-        // 显示成功提示 (Show success notification)
-        toastr.success(`截图已保存: ${filename} (Screenshot saved: ${filename})`, '保存成功 (Save successful)', { timeOut: 5000 });
-        return true; // 返回成功状态 (Return success status)
+        URL.revokeObjectURL(link.href);
+        toastr.success(`截图已保存: ${filename}`, '保存成功', { timeOut: 5000 });
+        return true;
 
     } catch (error) {
-        // 处理错误 (Handle errors)
+        // ... (错误处理) ...
         console.error(`${pluginName}: Screenshot failed for ${filename}:`, error);
-        toastr.error(`截图失败: ${error.message || '未知错误'} (Screenshot failed: ${error.message || 'Unknown error'})`, '操作失败 (Operation failed)');
-        return false; // 返回失败状态 (Return failure status)
+        toastr.error(`截图失败: ${error.message || '未知错误'}`, '操作失败');
+        return false;
     } finally {
-        // --- (可选/调试用) 确保在 finally 块中恢复可能修改的样式 ---
-        // --- (Optional/Debugging) Ensure potentially modified styles are restored in finally block ---
-        // if (dialog && typeof originalDialogTransform !== 'undefined' && dialog.style.transform !== originalDialogTransform) {
-        //     dialog.style.transform = originalDialogTransform;
-        // }
-        // --- 清理结束 ---
-        // --- End of cleanup ---
+        // ... (清理逻辑) ...
     }
 }
 // --- 新增：生成安全的文件名 ---
