@@ -109,12 +109,70 @@ function loadScript(url) {
  * @param {object} options - 传递给 html2canvas 的额外选项 (Extra options to pass to html2canvas)
  * @returns {Promise<boolean>} - 返回截图是否成功 (Returns whether the screenshot was successful)
  */
-async function captureAndDownload(element, filename, options = {}) {
-    // ... (检查 html2canvas 加载的代码) ...
-    try {
-        // ... (toastr提示) ...
-        const rect = element.getBoundingClientRect();
+// index.js
 
+// ... (其他代码保持不变) ...
+
+async function captureAndDownload(element, filename, options = {}) {
+    if (!html2canvasLoaded || typeof html2canvas === 'undefined') {
+        toastr.error('截图库 (html2canvas) 未加载或加载失败，无法截图。');
+        console.error(`${pluginName}: html2canvas is not loaded. Cannot capture screenshot.`);
+        return false;
+    }
+
+    const body = document.body;
+    let originalBodyClasses = body.className;
+    let bodyHadTranslate = body.classList.contains('translate');
+    let chatParent = null;
+    let chatNextSibling = null;
+    let originalChatStyles = {}; // 存储原始样式
+
+    try {
+        toastr.info(`正在准备截图环境: ${filename}...`, '请稍候', { timeOut: 2000 });
+
+        // --- 特定于 #chat 的预处理 ---
+        if (element.id === 'chat') {
+            console.log(`${pluginName}: Preparing #chat element for full screenshot.`);
+
+            // 1. 记录原始父元素和兄弟元素，用于恢复
+            chatParent = element.parentNode;
+            chatNextSibling = element.nextSibling;
+
+            // 2. 记录并修改关键样式（防止绝对/固定定位干扰）
+            originalChatStyles.position = element.style.position;
+            originalChatStyles.top = element.style.top;
+            originalChatStyles.left = element.style.left;
+            originalChatStyles.width = element.style.width; // 记录可能的内联宽度
+            originalChatStyles.height = element.style.height; // 记录可能的内联高度
+            originalChatStyles.zIndex = element.style.zIndex;
+
+            element.style.position = 'absolute'; // 使用绝对定位脱离文档流
+            element.style.top = '0px';
+            element.style.left = '0px';
+            element.style.width = `${element.scrollWidth}px`; // 显式设置宽度
+            // 注意：高度不直接设置 scrollHeight，让 html2canvas 处理
+            element.style.zIndex = '99999'; // 尝试置于顶层
+
+            // 3. 将 #chat 移动到 body 下
+            body.appendChild(element);
+
+            // 4. 移除 body 上的干扰类 (translate)
+            if (bodyHadTranslate) {
+                console.log(`${pluginName}: Temporarily removing 'translate' class from body.`);
+                body.classList.remove('translate');
+            }
+
+            // 5. 滚动到页面顶部 (重要！)
+            window.scrollTo(0, 0);
+
+            // 6. 等待一帧让 DOM 和样式更新
+            await new Promise(resolve => requestAnimationFrame(resolve));
+        }
+        // --- 预处理结束 ---
+
+
+        // --- html2canvas 选项设置 ---
+        const rect = element.getBoundingClientRect(); // 重新获取移动后的 rect (可能不需要了)
         let defaultOptions = {
             backgroundColor: null,
             useCORS: true,
@@ -123,46 +181,43 @@ async function captureAndDownload(element, filename, options = {}) {
         };
 
         if (element.classList.contains('favorite-item')) {
-            // ... (收藏项截图逻辑保持不变) ...
+            // 单条收藏截图逻辑 (保持之前的最佳尝试)
             console.log(`${pluginName}: Capturing a .favorite-item element.`);
-            defaultOptions.backgroundColor = getComputedStyle(element).getPropertyValue('background-color').trim() || getComputedStyle(document.body).getPropertyValue('--SmartThemeBodyBgDarker').trim() || '#2a2a2e';
+            defaultOptions.backgroundColor = getComputedStyle(element).getPropertyValue('background-color').trim() || getComputedStyle(body).getPropertyValue('--SmartThemeBodyBgDarker').trim() || '#2a2a2e';
             defaultOptions.x = rect.left;
             defaultOptions.y = rect.top;
             defaultOptions.width = rect.width;
             defaultOptions.height = rect.height;
-
-// ... (函数开头和 .favorite-item 逻辑不变) ...
         } else if (element.id === 'chat') {
-            console.log(`${pluginName}: Capturing #chat element (attempting full scroll content - Strategy 2.3: Explicit size only).`);
-
-            // 背景色处理 (Background color handling)
+            // #chat 长截图逻辑
+            console.log(`${pluginName}: Configuring html2canvas for moved #chat.`);
+            // 背景色
             defaultOptions.backgroundColor = getComputedStyle(element).getPropertyValue('background-color').trim();
             if (!defaultOptions.backgroundColor || defaultOptions.backgroundColor === 'rgba(0, 0, 0, 0)' || defaultOptions.backgroundColor === 'transparent') {
-                defaultOptions.backgroundColor = getComputedStyle(document.body).getPropertyValue('--main-bg-color').trim() || '#1e1e1e';
+                defaultOptions.backgroundColor = getComputedStyle(body).getPropertyValue('--main-bg-color').trim() || '#1e1e1e';
             }
 
-            // --- 策略 2.3：只明确设置 width/height ---
-            // --- Strategy 2.3: Explicitly set width/height only ---
+            // 关键：因为我们把它移到了 body 下并滚动到顶部，
+            // 理论上它的起点就是 (0,0)，只需要指定完整尺寸
             defaultOptions.width = element.scrollWidth;
             defaultOptions.height = element.scrollHeight;
+            defaultOptions.x = 0; // 因为移到了左上角
+            defaultOptions.y = 0; // 因为滚动到了顶部
+            defaultOptions.scrollX = 0; // 页面滚动已经处理
+            defaultOptions.scrollY = 0; // 页面滚动已经处理
 
-            // 不设置 x, y, scrollX, scrollY
-            // Do not set x, y, scrollX, scrollY
-            delete defaultOptions.x;
-            delete defaultOptions.y;
-            delete defaultOptions.scrollX;
-            delete defaultOptions.scrollY;
-
-            // 确保不使用 windowHeight/Width
+            // 删除 windowWidth/Height
             delete defaultOptions.windowWidth;
             delete defaultOptions.windowHeight;
-            // --- 策略 2.3 结束 ---
         }
-// ... (函数剩余部分不变) ...
+        // --- 选项设置结束 ---
+
 
         const h2cOptions = { ...defaultOptions, ...options };
-        console.log(`[${pluginName}] html2canvas options for "${filename}":`, h2cOptions, "Element rect:", rect, "Element:", element);
+        console.log(`[${pluginName}] html2canvas options for "${filename}":`, h2cOptions, "Element rect (after potential move):", rect, "Element:", element);
 
+        // 执行截图
+        toastr.info(`正在生成截图: ${filename}...`, '请稍候', { timeOut: 5000, extendedTimeOut: 3000 }); // 增加提示时间
         const canvas = await html2canvas(element, h2cOptions);
 
         // ... (下载逻辑) ...
@@ -178,14 +233,40 @@ async function captureAndDownload(element, filename, options = {}) {
         return true;
 
     } catch (error) {
-        // ... (错误处理) ...
         console.error(`${pluginName}: Screenshot failed for ${filename}:`, error);
         toastr.error(`截图失败: ${error.message || '未知错误'}`, '操作失败');
         return false;
     } finally {
-        // ... (清理逻辑) ...
+        // --- 恢复 DOM 和样式 (非常重要) ---
+        // --- Restore DOM and styles (Very important) ---
+        if (element.id === 'chat' && chatParent) {
+            console.log(`${pluginName}: Restoring #chat element to its original position.`);
+            // 恢复原始样式
+            element.style.position = originalChatStyles.position;
+            element.style.top = originalChatStyles.top;
+            element.style.left = originalChatStyles.left;
+            element.style.width = originalChatStyles.width;
+            element.style.height = originalChatStyles.height;
+            element.style.zIndex = originalChatStyles.zIndex;
+
+            // 将元素移回原位
+            if (chatNextSibling) {
+                chatParent.insertBefore(element, chatNextSibling);
+            } else {
+                chatParent.appendChild(element);
+            }
+        }
+        // 恢复 body 类
+        if (bodyHadTranslate && !body.classList.contains('translate')) {
+             console.log(`${pluginName}: Restoring original body classes in finally block.`);
+             body.className = originalBodyClasses; // 使用 className 确保完全恢复
+        }
+        console.log(`${pluginName}: Screenshot process finished for ${filename}. DOM and styles restored.`);
+        // --- 清理结束 ---
     }
 }
+
+// ... (其他代码) ...
 // --- 新增：生成安全的文件名 ---
 // --- New: Generate safe filename ---
 function generateSafeFilename(baseName, type, identifier, extension = 'png') {
