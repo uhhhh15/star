@@ -1,4 +1,4 @@
-// Import from the core script
+// 从核心脚本导入
 import {
     eventSource,
     event_types,
@@ -11,7 +11,7 @@ import {
     // addOneMessage,         // 不直接导入, 使用 context.addOneMessage
 } from '../../../../script.js';
 
-// Import from the extension helper script
+// 从扩展助手脚本导入
 import {
     getContext,
     renderExtensionTemplateAsync,
@@ -19,7 +19,7 @@ import {
     saveMetadataDebounced
 } from '../../../extensions.js';
 
-// Import from the Popup utility script
+// 从 Popup 工具脚本导入
 import {
     Popup,
     POPUP_TYPE,
@@ -27,10 +27,10 @@ import {
     POPUP_RESULT,
 } from '../../../popup.js';
 
-// Import for group chats
+// 为群组聊天导入
 import { openGroupChat } from "../../../group-chats.js";
 
-// Import from the general utility script
+// 从通用工具脚本导入
 import {
     uuidv4,
     timestampToMoment, // <--- 确保 timestampToMoment 已导入，导出功能需要它
@@ -38,14 +38,17 @@ import {
 } from '../../../utils.js';
 
 
-
-// Define plugin folder name (important for consistency)
+// 定义插件文件夹名称 (对保持一致性很重要)
 const pluginName = 'star'; // 保持文件夹名称一致
 
-// Initialize plugin settings if they don't exist
+// 初始化插件设置 (如果它们不存在)
 if (!extension_settings[pluginName]) {
     extension_settings[pluginName] = {};
 }
+
+// --- 新增：html2canvas 加载状态 ---
+let html2canvasLoaded = false;
+let H2C_LIB_PATH = 'scripts/extensions/third-party/star/lib/html2canvas.min.js'; // 确保这个路径正确！
 
 // --- 新增：预览状态管理 ---
 const previewState = {
@@ -54,23 +57,275 @@ const previewState = {
     previewChatId: null,   // 预览聊天的 ID
 };
 const returnButtonId = 'favorites-return-button'; // 返回按钮的 ID
+const screenshotAllPreviewButtonId = 'favorites-preview-screenshot-all-btn'; // 新增：截取所有预览消息按钮 ID
 
-// Define HTML for the favorite toggle icon
+// 定义收藏切换图标的 HTML
 const messageButtonHtml = `
     <div class="mes_button favorite-toggle-icon" title="收藏/取消收藏">
         <i class="fa-regular fa-star"></i>
     </div>
 `;
 
-// Store reference to the favorites popup
+// 存储对收藏夹弹窗的引用
 let favoritesPopup = null;
-// Current pagination state
+// 当前分页状态
 let currentPage = 1;
 const itemsPerPage = 5;
 
+// --- 新增：动态加载脚本的辅助函数 ---
+function loadScript(url) {
+    return new Promise((resolve, reject) => {
+        if (document.querySelector(`script[src="${url}"]`)) {
+            console.log(`${pluginName}: Script ${url} already loaded.`);
+            resolve();
+            return;
+        }
+        const script = document.createElement('script');
+        script.src = url;
+        script.onload = resolve;
+        script.onerror = reject;
+        document.head.appendChild(script);
+    });
+}
+
 /**
- * Ensures the favorites array exists in the current chat metadata accessed via getContext()
- * @returns {object | null} The chat metadata object if available and favorites array is ensured, null otherwise.
+ * --- 新增：截图并下载的辅助函数 ---
+ * @param {HTMLElement} element - 要截图的 DOM 元素
+ * @param {string} filename - 下载文件的名称
+ * @param {object} options - 传递给 html2canvas 的额外选项
+ * @returns {Promise<boolean>} - 返回截图是否成功
+ */
+async function captureAndDownload(element, filename, options = {}) {
+    // 检查 html2canvas 是否已加载
+    if (!html2canvasLoaded || typeof html2canvas === 'undefined') {
+        toastr.error('截图库 (html2canvas) 未加载或加载失败，无法截图。');
+        console.error(`${pluginName}: html2canvas is not loaded. Cannot capture screenshot.`);
+        return false;
+    }
+
+    toastr.info(`正在生成截图: ${filename}...`, '请稍候', { timeOut: 3000, extendedTimeOut: 2000 });
+
+    // --- 用于存储和恢复临时修改的样式的辅助函数和数组 ---
+    const originalStyles = [];
+    function storeAndApplyStyle(el, prop, value) {
+        // 存储当前内联样式值，如果不存在则为 undefined
+        originalStyles.push({ el, prop, originalValue: el.style[prop] });
+        el.style[prop] = value;
+    }
+    function restoreOriginalStyles() {
+        // 按相反的顺序恢复，以处理嵌套的样式修改（尽管在这个简单实现中顺序不那么重要）
+        for (let i = originalStyles.length - 1; i >= 0; i--) {
+            const item = originalStyles[i];
+            item.el.style[item.prop] = item.originalValue;
+        }
+        originalStyles.length = 0; // 清空数组，以便下次调用
+    }
+    // --- 样式管理结束 ---
+
+    try {
+        // --- 基础默认 html2canvas 选项 ---
+        let defaultOptions = {
+            backgroundColor: null, // 默认让 html2canvas 尝试自动检测或使用元素背景
+            useCORS: true,         // 处理可能的跨域图片（如头像）
+            scale: window.devicePixelRatio || 1, // 使用设备像素比提高清晰度
+            logging: true,         // 打开日志进行调试 (生产环境可以考虑关闭)
+            scrollX: 0,            // 对于目标元素本身，通常从其内容的 (0,0) 点开始截取
+            scrollY: 0,            // 同上
+            // x, y, width, height 将根据具体情况在下面设置
+        };
+
+        // --- 针对特定元素的选项覆盖和预处理 ---
+        if (element.classList.contains('favorite-item')) {
+            // --- 截取收藏弹窗中的单个收藏项 (.favorite-item) ---
+            console.log(`${pluginName}: Capturing a .favorite-item element.`);
+
+            // 1. 展开内部可能滚动的子元素 (如 .fav-preview)
+            const previewElement = element.querySelector('.fav-preview');
+            if (previewElement && previewElement.scrollHeight > previewElement.clientHeight) {
+                console.log(`${pluginName}: Expanding internal .fav-preview for screenshot.`);
+                storeAndApplyStyle(previewElement, 'height', previewElement.scrollHeight + 'px');
+                storeAndApplyStyle(previewElement, 'maxHeight', 'none'); // 移除最大高度限制
+                storeAndApplyStyle(previewElement, 'overflow', 'visible'); // 确保内容不被裁剪
+
+                // 同时，确保 .favorite-item 自身也能容纳展开后的内容
+                storeAndApplyStyle(element, 'height', 'auto');
+            }
+
+            // 等待一帧让浏览器应用样式并重绘
+            await new Promise(resolve => requestAnimationFrame(resolve));
+            await new Promise(resolve => setTimeout(resolve, 50)); // 额外的小延迟，有时有帮助
+
+            // 2. 背景色处理
+            let bgColor = getComputedStyle(element).getPropertyValue('background-color').trim();
+            if (!bgColor || bgColor === 'rgba(0, 0, 0, 0)' || bgColor === 'transparent') {
+                const popupDialog = element.closest('dialog.popup'); // 查找父级 <dialog>
+                if (popupDialog) {
+                    bgColor = getComputedStyle(popupDialog).getPropertyValue('background-color').trim();
+                }
+                // 如果 <dialog> 也是透明或未找到，尝试获取主题变量或使用最终备用色
+                if (!bgColor || bgColor === 'rgba(0, 0, 0, 0)' || bgColor === 'transparent') {
+                    bgColor = getComputedStyle(document.documentElement).getPropertyValue('--SmartThemeBodyBgDarker').trim() ||
+                              getComputedStyle(document.body).getPropertyValue('--SmartThemeBodyBgDarker').trim() ||
+                              '#2a2a2e'; // 最终备用色
+                }
+            }
+            defaultOptions.backgroundColor = bgColor;
+
+            // 3. 尺寸和位置：对于弹窗内元素，使用 getBoundingClientRect 获取其在视口中的位置和尺寸。
+            // 这是因为弹窗（尤其是 <dialog>）可能有 transform 或特殊定位，
+            // 直接让 html2canvas 渲染元素可能无法正确定位。
+            const rect = element.getBoundingClientRect();
+            defaultOptions.x = rect.left;
+            defaultOptions.y = rect.top;
+            defaultOptions.width = rect.width;
+            defaultOptions.height = rect.height;
+            // 注意：如果 <dialog> 元素应用了 transform (如 scale)，此方法仍可能不完美，
+            // html2canvas 对 transform 的处理有时会有偏差。
+
+        } else if (element.id === 'chat') {
+            // --- 截取 #chat (长截图 - 假设已在调用方正确展开) ---
+            console.log(`${pluginName}: Capturing #chat element (expecting it to be pre-expanded by caller).`);
+
+            // 背景色处理
+            let chatBgColor = getComputedStyle(element).getPropertyValue('background-color').trim();
+            if (!chatBgColor || chatBgColor === 'rgba(0, 0, 0, 0)' || chatBgColor === 'transparent') {
+                chatBgColor = getComputedStyle(document.documentElement).getPropertyValue('--main-bg-color').trim() ||
+                              getComputedStyle(document.body).getPropertyValue('--main-bg-color').trim() ||
+                              '#1e1e1e'; // 主题变量或备用色
+            }
+            defaultOptions.backgroundColor = chatBgColor;
+
+            // **关键：对于长截图，调用方必须负责在调用此函数前：**
+            // 1. 将 `#chat` 元素的 `height` 设置为其 `scrollHeight`。
+            // 2. 将 `#chat` 元素的 `overflow` (及 `overflowY`) 设置为 `visible`。
+            // 3. 将 `#chat` 元素的所有会裁剪它的父容器的 `overflow` 设置为 `visible`，
+            //    并可能需要将其父容器的 `height` 设置为 `auto` 或足够大。
+            // 4. 在修改样式后，等待 `requestAnimationFrame` 和一个小的 `setTimeout` 以确保浏览器重绘。
+            //
+            // 此函数假设 `element` (即 #chat) 已经是完全展开的状态。
+            defaultOptions.width = element.scrollWidth;        // 画布宽度设为元素内容的总宽度
+            defaultOptions.height = element.scrollHeight;      // 画布高度设为元素内容的总高度
+            defaultOptions.windowWidth = element.scrollWidth;  // 渲染窗口宽度也设为内容总宽度
+            defaultOptions.windowHeight = element.scrollHeight;// 渲染窗口高度也设为内容总高度
+            defaultOptions.x = 0; // 因为我们是从元素自身的 (0,0) 点开始截取其全部内容
+            defaultOptions.y = 0; // 同上
+
+        } else {
+            // --- 其他未知类型的元素 (回退方案) ---
+            console.warn(`[${pluginName}] captureAndDownload called on an unsupported or generic element. Using getBoundingClientRect for dimensions.`, element);
+            const rect = element.getBoundingClientRect();
+            defaultOptions.x = rect.left;
+            defaultOptions.y = rect.top;
+            defaultOptions.width = rect.width;
+            defaultOptions.height = rect.height;
+
+            // 尝试获取背景色，否则使用通用备用色
+            let bgColor = getComputedStyle(element).getPropertyValue('background-color').trim();
+            if (!bgColor || bgColor === 'rgba(0, 0, 0, 0)' || bgColor === 'transparent') {
+                 bgColor = getComputedStyle(document.body).getPropertyValue('background-color').trim() || '#ffffff'; // 通用备用，例如白色
+            }
+            defaultOptions.backgroundColor = bgColor;
+        }
+        // --- 选项设置结束 ---
+
+        // 合并基础选项和外部传入的特定选项 (外部 options 优先级更高)
+        const h2cOptions = { ...defaultOptions, ...options };
+        console.log(`[${pluginName}] Final html2canvas options for "${filename}":`, h2cOptions, "Target Element:", element);
+
+        // 执行截图
+        const canvas = await html2canvas(element, h2cOptions);
+        console.log(`[${pluginName}] Canvas created. Dimensions: ${canvas.width}x${canvas.height}`);
+
+        // --- 下载逻辑 ---
+        const dataUrl = canvas.toDataURL('image/png');
+        if (!dataUrl || dataUrl === 'data:,') { // 检查生成的 Data URL 是否有效
+             throw new Error('未能从画布生成数据URL。画布可能为空或过大。(Failed to generate data URL from canvas. Canvas might be empty or too large.)');
+        }
+        const link = document.createElement('a');
+        link.href = dataUrl;
+        link.download = filename;
+        document.body.appendChild(link); // 需要添加到 DOM 中才能触发点击 (在某些浏览器中)
+        link.click();
+        document.body.removeChild(link); // 清理
+        URL.revokeObjectURL(link.href); // 释放对象 URL 占用的内存
+
+        // 显示成功提示
+        toastr.success(`截图已保存: ${filename}`, '保存成功', { timeOut: 5000 });
+        return true; // 返回成功状态
+
+    } catch (error) {
+        // --- 详细的错误处理 ---
+        console.error(`${pluginName}: Screenshot capture or download failed for ${filename}:`, error);
+
+        let errorMessage = '未知错误 (Unknown error)';
+        let errorType = 'Unknown';
+
+        if (error instanceof Error) {
+            errorMessage = error.message;
+            errorType = error.name;
+            // 尝试识别一些常见的 html2canvas 相关错误
+            if (errorMessage.includes('Maximum call stack size exceeded')) {
+                errorMessage = '页面过于复杂或内容过多，导致截图引擎栈溢出。请尝试简化内容或分部分截图。';
+            } else if (errorMessage.includes('SecurityError') && errorMessage.includes('tainted')) {
+                errorMessage = '页面包含跨域内容（如图片或字体），且未正确配置CORS，导致画布被污染，无法安全导出。';
+            } else if (errorMessage.includes('IndexSizeError') || errorMessage.includes('dimensions') || errorMessage.includes('NaN')) {
+                 errorMessage = '计算截图尺寸、坐标或缩放比例时出错。可能是元素尺寸无效或过大。';
+            }
+        } else if (error instanceof Event) { // 有时 html2canvas 的错误会以 Event 对象的形式抛出
+            errorType = 'Event';
+            errorMessage = `捕获到意外事件: ${error.type}。`;
+            console.error(`[${pluginName}] Caught Event details during screenshot:`, {
+                type: error.type,
+                target: error.target, // 可能为 null
+                currentTarget: error.currentTarget, // 可能为 null
+                // @ts-ignore // error 对象可能不存在于所有 Event 类型上
+                errorDetails: error.error, // 如果是 ErrorEvent
+                // @ts-ignore
+                messageDetails: error.message // 某些自定义事件可能有
+            });
+            // @ts-ignore
+            if (error.error instanceof Error) {
+                 // @ts-ignore
+                 errorMessage += ` 详细错误: ${error.error.message}`;
+            // @ts-ignore
+            } else if (typeof error.message === 'string' && error.message) {
+                 // @ts-ignore
+                 errorMessage += ` 事件消息: ${error.message}`;
+            }
+        } else {
+            // 其他未知类型的错误
+            try {
+                errorMessage = String(error);
+                errorType = typeof error;
+            } catch (e) {
+                errorMessage = '无法识别的错误对象，且转换为字符串失败。';
+            }
+        }
+
+        console.error(`[${pluginName}] Identified Screenshot Error Type: ${errorType}, Message: ${errorMessage}`);
+        toastr.error(`截图失败: ${errorMessage}`, '操作失败', { timeOut: 7000, extendedTimeOut: 3000 }); // 给用户更长时间阅读错误
+        // --- Catch 块修改结束 ---
+        return false;
+    } finally {
+        // --- 无论成功或失败，都恢复所有临时修改的样式 ---
+        restoreOriginalStyles();
+        console.log(`${pluginName}: Screenshot process finished for ${filename}. All temporary styles (if any) have been restored.`);
+    }
+}
+
+
+// --- 新增：生成安全的文件名 ---
+function generateSafeFilename(baseName, type, identifier, extension = 'png') {
+    const dateStr = timestampToMoment(Date.now()).format('YYYYMMDDHHmmss');
+    let safeBase = String(baseName).replace(/[\\/:*?"<>|]/g, '_').substring(0, 50);
+    let safeId = String(identifier).replace(/[\\/:*?"<>|]/g, '_');
+    return `${safeBase}_${type}_${safeId}_${dateStr}.${extension}`;
+}
+
+
+/**
+ * 确保通过 getContext() 访问的当前聊天元数据中存在收藏夹数组
+ * @returns {object | null} 如果可用且收藏夹数组已确保，则返回聊天元数据对象，否则返回 null。
  */
 function ensureFavoritesArrayExists() {
     let context;
@@ -94,8 +349,8 @@ function ensureFavoritesArrayExists() {
 
 
 /**
- * Adds a favorite item to the current chat metadata
- * @param {Object} messageInfo Information about the message being favorited
+ * 将收藏项添加到当前聊天元数据
+ * @param {Object} messageInfo 有关被收藏消息的信息
  */
 function addFavorite(messageInfo) {
     console.log(`${pluginName}: addFavorite 函数开始执行，接收到的 messageInfo:`, messageInfo);
@@ -127,9 +382,9 @@ function addFavorite(messageInfo) {
 }
 
 /**
- * Removes a favorite by its ID
- * @param {string} favoriteId The ID of the favorite to remove
- * @returns {boolean} True if successful, false otherwise
+ * 按 ID 删除收藏
+ * @param {string} favoriteId 要删除的收藏的 ID
+ * @returns {boolean} 如果成功则为 true，否则为 false
  */
 function removeFavoriteById(favoriteId) {
     console.log(`${pluginName}: removeFavoriteById - 尝试删除 ID: ${favoriteId}`);
@@ -153,9 +408,9 @@ function removeFavoriteById(favoriteId) {
 }
 
 /**
- * Removes a favorite by the message ID it references
- * @param {string} messageId The message ID (from mesid attribute)
- * @returns {boolean} True if successful, false otherwise
+ * 按其引用的消息 ID 删除收藏
+ * @param {string} messageId 消息 ID (来自 mesid 属性)
+ * @returns {boolean} 如果成功则为 true，否则为 false
  */
 function removeFavoriteByMessageId(messageId) {
     console.log(`${pluginName}: removeFavoriteByMessageId - 尝试删除 messageId: ${messageId}`);
@@ -173,9 +428,9 @@ function removeFavoriteByMessageId(messageId) {
 }
 
 /**
- * Updates the note for a favorite item
- * @param {string} favoriteId The ID of the favorite
- * @param {string} note The new note text
+ * 更新收藏项的备注
+ * @param {string} favoriteId 收藏的 ID
+ * @param {string} note 新的备注文本
  */
 function updateFavoriteNote(favoriteId, note) {
     console.log(`${pluginName}: updateFavoriteNote - 尝试更新 ID: ${favoriteId} 的备注`);
@@ -196,8 +451,8 @@ function updateFavoriteNote(favoriteId, note) {
 }
 
 /**
- * Handles the toggle of favorite status when clicking the star icon
- * @param {Event} event The click event
+ * 处理点击星形图标时收藏状态的切换
+ * @param {Event} event 点击事件
  */
 function handleFavoriteToggle(event) {
     console.log(`${pluginName}: handleFavoriteToggle - 开始执行`);
@@ -281,7 +536,7 @@ function handleFavoriteToggle(event) {
 }
 
 /**
- * Adds favorite toggle icons to all messages in the chat that don't have one
+ * 将收藏切换图标添加到聊天中所有没有该图标的消息
  */
 function addFavoriteIconsToMessages() {
     $('#chat').find('.mes').each(function() {
@@ -294,7 +549,7 @@ function addFavoriteIconsToMessages() {
 }
 
 /**
- * Updates all favorite icons in the current view to reflect current state
+ * 更新当前视图中的所有收藏图标以反映当前状态
  */
 function refreshFavoriteIconsInView() {
     const chatMetadata = ensureFavoritesArrayExists();
@@ -322,10 +577,10 @@ function refreshFavoriteIconsInView() {
 }
 
 /**
- * Renders a single favorite item for the popup
- * @param {Object} favItem The favorite item to render
- * @param {number} index Index of the item (used for pagination, relative to sorted array)
- * @returns {string} HTML string for the favorite item
+ * 为弹窗渲染单个收藏项
+ * @param {Object} favItem 要渲染的收藏项
+ * @param {number} index 项目索引 (用于分页，相对于排序后的数组)
+ * @returns {string} 收藏项的 HTML 字符串
  */
 function renderFavoriteItem(favItem, index) {
     if (!favItem) return '';
@@ -375,6 +630,11 @@ function renderFavoriteItem(favItem, index) {
 
     const formattedMesid = `# ${favItem.messageId}`;
 
+    // --- 新增：截图按钮 ---
+    const screenshotButtonHtml = html2canvasLoaded ?
+        `<i class="fa-solid fa-camera favorite-screenshot-icon" title="截图此收藏"></i>` :
+        `<i class="fa-solid fa-camera favorite-screenshot-icon-disabled" title="截图功能未加载"></i>`;
+
     return `
         <div class="favorite-item" data-fav-id="${favItem.id}" data-msg-id="${favItem.messageId}" data-index="${index}">
             <div class="fav-header-info">
@@ -387,6 +647,7 @@ function renderFavoriteItem(favItem, index) {
             <div class="fav-note" style="${favItem.note ? '' : 'display:none;'}">${favItem.note || ''}</div>
             <div class="fav-preview ${deletedClass}">${previewText}</div>
             <div class="fav-actions">
+                ${screenshotButtonHtml} <!-- 新增截图按钮 -->
                 <i class="fa-solid fa-pencil" title="编辑备注"></i>
                 <i class="fa-solid fa-trash" title="删除收藏"></i>
             </div>
@@ -395,7 +656,7 @@ function renderFavoriteItem(favItem, index) {
 }
 
 /**
- * Updates the favorites popup with current data
+ * 使用当前数据更新收藏夹弹窗
  */
 function updateFavoritesPopup() {
     const chatMetadata = ensureFavoritesArrayExists();
@@ -481,13 +742,13 @@ function updateFavoritesPopup() {
 }
 
 /**
- * Opens or updates the favorites popup
+ * 打开或更新收藏夹弹窗
  */
 function showFavoritesPopup() {
     if (!favoritesPopup) {
         try {
             favoritesPopup = new Popup(
-                '<div class="spinner"></div>',
+                '<div class="spinner"></div>', // 初始加载时的微调器
                 POPUP_TYPE.TEXT,
                 '',
                 {
@@ -500,13 +761,14 @@ function showFavoritesPopup() {
             );
             console.log(`${pluginName}: Popup instance created successfully.`);
 
-            // --- 修改: 事件监听逻辑，增加处理世界书导出菜单项 ---
-            $(favoritesPopup.content).on('click', function(event) {
+            // --- 修改: 事件监听逻辑，增加处理世界书导出菜单项和截图 ---
+            $(favoritesPopup.content).on('click', async function(event) { // 添加 async
                 console.log(`[${pluginName}] Popup content click detected. Target element:`, event.target);
 
                 const target = $(event.target);
                 const closestButton = target.closest('button');
                 const closestMenuItem = target.closest('.favorites-export-item');
+                const closestFavItemElement = target.closest('.favorite-item'); // 新增
 
                 // 处理导出下拉菜单的显示/隐藏
                 if (closestButton.length && closestButton.attr('id') === 'export-favorites-trigger-btn') {
@@ -543,13 +805,11 @@ function showFavoritesPopup() {
                 // 处理其他按钮点击 (保持不变)
                 if (closestButton.length) {
                     if (closestButton.hasClass('pagination-prev')) {
-                        // ... (pagination logic) ...
                          if (currentPage > 1) {
                             currentPage--;
                             updateFavoritesPopup();
                         }
                     } else if (closestButton.hasClass('pagination-next')) {
-                        // ... (pagination logic) ...
                         const chatMetadata = ensureFavoritesArrayExists();
                         const totalFavorites = chatMetadata ? chatMetadata.favorites.length : 0;
                         const totalPages = Math.max(1, Math.ceil(totalFavorites / itemsPerPage));
@@ -558,20 +818,17 @@ function showFavoritesPopup() {
                             updateFavoritesPopup();
                         }
                     } else if (closestButton.hasClass('preview-favorites-btn')) {
-                        // ... (preview logic) ...
                         handlePreviewButtonClick();
                         if (favoritesPopup) {
                             favoritesPopup.completeCancelled();
                             console.log(`${pluginName}: 点击预览按钮，关闭收藏夹弹窗 (使用 completeCancelled)。`);
                         }
                     } else if (closestButton.hasClass('clear-invalid')) {
-                        // ... (clear invalid logic) ...
                         handleClearInvalidFavorites();
                     }
                 }
-                // 处理图标点击 (保持不变)
+                // 处理图标点击
                 else if (target.hasClass('fa-pencil')) {
-                    // ... (edit note logic) ...
                      const favItem = target.closest('.favorite-item');
                     if (favItem && favItem.length) {
                          const favId = favItem.data('fav-id');
@@ -585,7 +842,6 @@ function showFavoritesPopup() {
                     }
                 }
                 else if (target.hasClass('fa-trash')) {
-                    // ... (delete favorite logic) ...
                     const favItem = target.closest('.favorite-item');
                     if (favItem && favItem.length) {
                          const favId = favItem.data('fav-id');
@@ -599,9 +855,26 @@ function showFavoritesPopup() {
                          console.warn(`${pluginName}: Clicked delete icon, but couldn't find parent .favorite-item`);
                     }
                 }
+                // --- 新增：处理收藏项截图按钮点击 ---
+                else if (target.hasClass('favorite-screenshot-icon') && html2canvasLoaded && closestFavItemElement.length) {
+                    const favId = closestFavItemElement.data('fav-id');
+                    const msgId = closestFavItemElement.data('msg-id');
+                    const currentContext = getContext();
+                    const chatName = currentContext.characterId ? currentContext.name2 : (currentContext.groups?.find(g => g.id === currentContext.groupId)?.name || '群聊');
+                    const filename = generateSafeFilename(chatName, 'FavMsg', msgId || favId);
+
+                    target.removeClass('fa-camera').addClass('fa-spinner fa-spin'); // 显示加载状态
+                    await captureAndDownload(closestFavItemElement.get(0), filename, {
+                        backgroundColor: getComputedStyle(document.body).getPropertyValue('--SmartThemeBodyBgDarker').trim() || '#2a2a2e',
+                    });
+                    target.removeClass('fa-spinner fa-spin').addClass('fa-camera'); // 恢复图标
+                }
+                else if (target.hasClass('favorite-screenshot-icon-disabled')) {
+                    toastr.warning('截图库未加载，无法使用此功能。');
+                }
+                // --- 截图逻辑结束 ---
                 else {
-                     // 其他点击情况
-                    if (target.closest('.menu_button, .favorite-item, .pagination-prev, .pagination-next, .preview-favorites-btn, .favorites-export-dropdown, .fa-pencil, .fa-trash').length === 0) {
+                    if (target.closest('.menu_button, .favorite-item, .pagination-prev, .pagination-next, .preview-favorites-btn, .favorites-export-dropdown, .fa-pencil, .fa-trash, .favorite-screenshot-icon').length === 0) {
                          $('#favorites-export-menu').hide(); // 点击弹窗其他区域也隐藏导出菜单
                     } else {
                          console.log(`[${pluginName}] Click did not match any specific handler in the popup or was handled. Target:`, event.target);
@@ -632,9 +905,9 @@ function showFavoritesPopup() {
 
 
 /**
- * Handles the deletion of a favorite from the popup (with simplified logging)
- * @param {string} favId The favorite ID
- * @param {string} messageId The message ID (mesid string)
+ * 处理从弹窗中删除收藏项 (简化日志记录)
+ * @param {string} favId 收藏 ID
+ * @param {string} messageId 消息 ID (mesid 字符串)
  */
 async function handleDeleteFavoriteFromPopup(favId, messageId) {
     console.log(`[${pluginName}] Attempting to delete favorite: favId=${favId}, messageId=${messageId}`);
@@ -668,8 +941,8 @@ async function handleDeleteFavoriteFromPopup(favId, messageId) {
 }
 
 /**
- * Handles editing the note for a favorite
- * @param {string} favId The favorite ID
+ * 处理编辑收藏项的备注
+ * @param {string} favId 收藏 ID
  */
 async function handleEditNote(favId) {
     const chatMetadata = ensureFavoritesArrayExists();
@@ -684,7 +957,7 @@ async function handleEditNote(favId) {
 }
 
 /**
- * Clears invalid favorites (those referencing deleted/non-existent messages)
+ * 清理无效的收藏项 (那些引用已删除/不存在消息的收藏项)
  */
 async function handleClearInvalidFavorites() {
     const chatMetadata = ensureFavoritesArrayExists();
@@ -749,7 +1022,6 @@ function ensurePreviewData() {
 
 // --- 设置预览UI ---
 function setupPreviewUI(targetPreviewChatId) {
-    // ... (代码保持不变) ...
     console.log(`${pluginName}: setupPreviewUI - Setting up UI for preview chat ${targetPreviewChatId}`);
     previewState.isActive = true;
     previewState.previewChatId = targetPreviewChatId;
@@ -757,7 +1029,9 @@ function setupPreviewUI(targetPreviewChatId) {
     $('#send_form').hide();
     console.log(`${pluginName}: setupPreviewUI - Hidden #send_form.`);
 
+    // 移除旧按钮 (如果存在)
     $(`#${returnButtonId}`).remove();
+    $(`#${screenshotAllPreviewButtonId}`).remove(); // 新增
 
     const returnButton = $('<button></button>')
         .attr('id', returnButtonId)
@@ -766,22 +1040,67 @@ function setupPreviewUI(targetPreviewChatId) {
         .attr('title', '点击返回到预览前的聊天')
         .on('click', triggerReturnNavigation);
 
-    $('#chat').after(returnButton);
-    console.log(`${pluginName}: setupPreviewUI - Added return button.`);
+    // --- 新增：截取所有预览消息按钮 ---
+    const screenshotAllButton = $('<button></button>')
+        .attr('id', screenshotAllPreviewButtonId)
+        .addClass('menu_button')
+        .text('截取所有预览消息')
+        .attr('title', '截取当前预览中的所有消息');
+
+    if (html2canvasLoaded) {
+        screenshotAllButton.on('click', async () => {
+            const chatElement = document.getElementById('chat');
+            if (!chatElement) {
+                toastr.error('无法找到聊天区域进行截图。');
+                return;
+            }
+            if (!previewState.originalContext) {
+                 toastr.error('无法获取原始聊天信息用于文件名。');
+                 return;
+            }
+
+            const origContext = previewState.originalContext;
+            // 使用原始上下文信息生成文件名
+            const chatName = origContext.characterId ? (origContext.name2 || '角色')
+                                          : (origContext.groupName || '群聊');
+
+            const filename = generateSafeFilename(chatName, 'PreviewAll', 'AllMessages');
+
+            screenshotAllButton.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> 正在截取...');
+            await captureAndDownload(chatElement, filename); // 调用截图函数
+            screenshotAllButton.prop('disabled', false).text('截取所有预览消息');
+        });
+    } else {
+        screenshotAllButton.prop('disabled', true).attr('title', '截图功能未加载');
+    }
+    // --- 截图按钮逻辑结束 ---
+
+    // 将按钮添加到聊天区域之后，方便用户看到
+    const buttonContainer = $('<div></div>').addClass('favorites-preview-controls').css({
+        'display': 'flex',
+        'justify-content': 'center',
+        'align-items': 'center',
+        'gap': '10px',
+        'margin-top': '15px',
+        'margin-bottom': '15px'
+    });
+    buttonContainer.append(screenshotAllButton).append(returnButton);
+    $('#chat').after(buttonContainer);
+
+    console.log(`${pluginName}: setupPreviewUI - Added return and screenshot all buttons.`);
 }
 
 // --- 恢复正常聊天UI ---
 function restoreNormalChatUI() {
-    // ... (代码保持不变) ...
     console.log(`${pluginName}: restoreNormalChatUI - Restoring normal UI.`);
-    $(`#${returnButtonId}`).remove();
+    $(`#${returnButtonId}`).parent('.favorites-preview-controls').remove(); // 移除整个容器
+    $(`#${screenshotAllPreviewButtonId}`).remove(); // 也确保单独移除，以防万一
     $('#send_form').show();
-    console.log(`${pluginName}: restoreNormalChatUI - Removed return button and shown #send_form.`);
+    console.log(`${pluginName}: restoreNormalChatUI - Removed preview buttons and shown #send_form.`);
 }
 
 // --- 触发返回导航的函数 ---
 async function triggerReturnNavigation() {
-    // ... (代码保持不变) ...
      console.log(`${pluginName}: triggerReturnNavigation - 返回按钮被点击。`);
     if (!previewState.originalContext) {
         console.error(`${pluginName}: triggerReturnNavigation - 未找到原始上下文！无法返回。`);
@@ -813,14 +1132,11 @@ async function triggerReturnNavigation() {
         } else {
             console.error(`${pluginName}: triggerReturnNavigation - 无效的原始上下文。无法确定导航类型。`);
             toastr.error('无法确定原始聊天类型，无法返回。');
-            restoreNormalChatUI();
-            previewState.isActive = false;
-            previewState.originalContext = null;
-            previewState.previewChatId = null;
         }
     } catch (error) {
         console.error(`${pluginName}: triggerReturnNavigation - 导航返回时出错:`, error);
         toastr.error(`返回原聊天时出错: ${error.message || '未知错误'}`);
+    } finally { // 确保UI恢复和状态重置
         restoreNormalChatUI();
         previewState.isActive = false;
         previewState.originalContext = null;
@@ -832,7 +1148,6 @@ async function triggerReturnNavigation() {
  * 处理预览按钮点击 (包含UI修改和聊天重命名)
  */
 async function handlePreviewButtonClick() {
-    // ... (代码保持不变) ...
     console.log(`${pluginName}: 预览按钮被点击 (包含UI修改和重命名)`);
     toastr.info('正在准备预览聊天...');
 
@@ -841,10 +1156,13 @@ async function handlePreviewButtonClick() {
         characterId: initialContext.characterId,
         groupId: initialContext.groupId,
         chatId: initialContext.chatId,
+        // 保存原始名称，用于截图文件名
+        name2: initialContext.name2,
+        groupName: initialContext.groups?.find(g => g.id === initialContext.groupId)?.name
     };
-    previewState.isActive = false;
+    previewState.isActive = false; // 将在此函数成功后设为 true
     previewState.previewChatId = null;
-    restoreNormalChatUI();
+    restoreNormalChatUI(); // 清理可能存在的旧预览UI
 
     console.log(`${pluginName}: 保存的原始上下文:`, previewState.originalContext);
 
@@ -875,8 +1193,7 @@ async function handlePreviewButtonClick() {
         // --- 步骤 1: 切换或创建聊天 ---
         if (existingPreviewChatId) {
              if (initialContext.chatId === existingPreviewChatId) {
-                targetPreviewChatId = initialContext.chatId;
-                needsRename = true;
+                targetPreviewChatId = initialContext.chatId; // 已经是预览聊天了
             } else {
                 needsRename = true;
                 if (groupId) {
@@ -891,7 +1208,7 @@ async function handlePreviewButtonClick() {
             targetPreviewChatId = newContextAfterCreation.chatId;
             if (!targetPreviewChatId) throw new Error('创建预览聊天失败，无法获取新的 Chat ID');
             extension_settings[pluginName].previewChats[previewKey] = targetPreviewChatId;
-            saveMetadataDebounced();
+            saveMetadataDebounced(); // 保存新的预览聊天ID映射
             needsRename = true;
         }
 
@@ -899,7 +1216,7 @@ async function handlePreviewButtonClick() {
         const currentContextAfterSwitchAttempt = getContext();
         if (currentContextAfterSwitchAttempt.chatId !== targetPreviewChatId) {
             try {
-                targetPreviewChatId = await new Promise((resolve, reject) => {
+                await new Promise((resolve, reject) => { // 使用 await 确保 targetPreviewChatId 被正确赋值
                      const timeout = setTimeout(() => {
                         eventSource.off(event_types.CHAT_CHANGED, listener);
                         reject(new Error(`Waiting for CHAT_CHANGED to ${targetPreviewChatId} timed out after 5 seconds`));
@@ -908,7 +1225,7 @@ async function handlePreviewButtonClick() {
                         if (receivedChatId === targetPreviewChatId) {
                             clearTimeout(timeout);
                             eventSource.off(event_types.CHAT_CHANGED, listener);
-                            requestAnimationFrame(() => resolve(receivedChatId));
+                            requestAnimationFrame(() => resolve(receivedChatId)); // 确保 DOM 更新后再 resolve
                         }
                     };
                     eventSource.on(event_types.CHAT_CHANGED, listener);
@@ -916,23 +1233,24 @@ async function handlePreviewButtonClick() {
             } catch (error) {
                 console.error(`${pluginName}: Error or timeout waiting for CHAT_CHANGED:`, error);
                 toastr.error('切换到预览聊天时出错或超时，请重试');
-                previewState.originalContext = null;
+                previewState.originalContext = null; // 重置状态
                 return;
             }
         } else {
+            // 即使 chatId 相同，也等待一帧确保UI同步
             await new Promise(resolve => requestAnimationFrame(resolve));
         }
 
         // --- 步骤 2.5: 重命名聊天 ---
-        const contextForRename = getContext();
+        const contextForRename = getContext(); // 获取最新的上下文
         if (contextForRename.chatId === targetPreviewChatId && needsRename) {
-            const oldFileName = contextForRename.chatId;
+            const oldFileName = contextForRename.chatId; // 通常是聊天文件名/ID
              if (!oldFileName || typeof oldFileName !== 'string') {
                  toastr.warning('无法获取当前聊天名称，跳过重命名。');
              } else {
                 const previewPrefix = "[收藏预览] ";
-                let currentChatName = contextForRename.chatName;
-                if (!currentChatName) { /* ... derive name ... */
+                let currentChatName = contextForRename.chatName; // 这是显示名
+                if (!currentChatName) { // 如果没有显示名，尝试从上下文推断
                      if (contextForRename.groupId) {
                         const group = contextForRename.groups?.find(g => g.id === contextForRename.groupId);
                         currentChatName = group ? group.name : '群聊';
@@ -945,31 +1263,42 @@ async function handlePreviewButtonClick() {
                 let newName = currentChatName;
                 if (typeof currentChatName === 'string' && !currentChatName.startsWith(previewPrefix)) {
                     newName = previewPrefix + currentChatName;
-                } else if (typeof currentChatName !== 'string'){
+                } else if (typeof currentChatName !== 'string'){ // 兜底
                      newName = previewPrefix + '未命名预览';
-                     currentChatName = '未命名预览';
+                     currentChatName = '未命名预览'; // 更新 currentChatName 以进行比较
                 }
                 const finalNewName = typeof newName === 'string' ? newName.trim() : '';
 
+                // 只有当名称有效且未被重命名过时才执行重命名
                 if (finalNewName && typeof currentChatName === 'string' && !currentChatName.startsWith(previewPrefix)) {
                      try {
+                        console.log(`${pluginName}: Renaming chat from "${oldFileName}" to display name "${finalNewName}"`);
                         await renameChat(oldFileName, finalNewName);
-                        targetPreviewChatId = finalNewName;
-                        const currentPreviewKey = contextForRename.groupId ? `group_${contextForRename.groupId}` : `char_${contextForRename.characterId}`;
+
+                        // 重命名后，chatId 可能会改变。需要获取新的 chatId。
+                        const contextAfterRename = getContext();
+                        targetPreviewChatId = contextAfterRename.chatId; // 更新 targetPreviewChatId
+
+                        // 更新 previewChats 映射中的 ID
+                        const currentPreviewKey = contextAfterRename.groupId ? `group_${contextAfterRename.groupId}` : `char_${contextAfterRename.characterId}`;
                         if (extension_settings[pluginName].previewChats && currentPreviewKey in extension_settings[pluginName].previewChats) {
-                            extension_settings[pluginName].previewChats[currentPreviewKey] = targetPreviewChatId;
+                            extension_settings[pluginName].previewChats[currentPreviewKey] = targetPreviewChatId; // 使用新的 chatId
                             saveMetadataDebounced();
                         }
+                         console.log(`${pluginName}: Chat renamed to "${finalNewName}", new targetPreviewChatId: ${targetPreviewChatId}`);
                     } catch(renameError) {
+                        console.error(`${pluginName}: Error renaming preview chat:`, renameError);
                         toastr.error('重命名预览聊天失败，请检查控制台');
-                        targetPreviewChatId = oldFileName;
+                        targetPreviewChatId = oldFileName; // 保持旧 ID
                     }
-                } else { // Already has prefix or invalid name
-                     targetPreviewChatId = oldFileName;
+                } else { // 已经有前缀或名称无效
+                     console.log(`${pluginName}: Chat rename skipped. currentChatName: "${currentChatName}", targetPreviewChatId: "${targetPreviewChatId}"`);
+                     targetPreviewChatId = oldFileName; // 确保是原始文件名
                 }
             }
-        } else { // Context mismatch or no rename needed
-             targetPreviewChatId = contextForRename.chatId;
+        } else { // 上下文不匹配或不需要重命名
+             targetPreviewChatId = contextForRename.chatId; // 使用当前上下文的 chatId
+             console.log(`${pluginName}: Rename check passed or not needed. Target ID remains: ${targetPreviewChatId}`);
         }
 
         // --- 步骤 3: 清空当前聊天 ---
@@ -979,58 +1308,68 @@ async function handlePreviewButtonClick() {
         try {
             await waitUntilCondition(() => document.querySelectorAll('#chat .mes').length === 0, 2000, 50);
         } catch (error) {
+            console.warn(`${pluginName}: Timeout waiting for chat to clear. Proceeding.`, error);
             toastr.warning('清空聊天时可能超时，继续尝试填充消息...');
         }
 
         // --- 步骤 4.5: 设置预览模式 UI ---
+        // 再次确认我们处于正确的聊天中
         const contextBeforeFill = getContext();
         if (contextBeforeFill.chatId !== targetPreviewChatId) {
             toastr.error('无法确认预览聊天环境，操作中止。请重试。');
+            console.error(`${pluginName}: Context mismatch before filling messages. Expected ${targetPreviewChatId}, got ${contextBeforeFill.chatId}`);
             previewState.originalContext = null;
-            restoreNormalChatUI();
+            restoreNormalChatUI(); // 确保恢复UI
             return;
         }
-        setupPreviewUI(targetPreviewChatId);
+        setupPreviewUI(targetPreviewChatId); // 设置UI，此时 isActive 变为 true
 
         // --- 步骤 5: 准备收藏消息 ---
         const messagesToFill = [];
+        // 确保按 messageId (即原始索引) 排序
         const sortedFavoritesForFill = [...chatMetadata.favorites].sort((a, b) => parseInt(a.messageId) - parseInt(b.messageId));
         for (const favItem of sortedFavoritesForFill) {
             const messageIndex = parseInt(favItem.messageId, 10);
             let foundMessage = null;
+            // 从原始聊天记录中查找
             if (!isNaN(messageIndex) && messageIndex >= 0 && messageIndex < originalChat.length) {
                 if (originalChat[messageIndex]) {
                     foundMessage = originalChat[messageIndex];
                 }
             }
             if (foundMessage) {
+                 // 创建消息的深拷贝
                  const messageCopy = JSON.parse(JSON.stringify(foundMessage));
+                 // 确保 extra 和 swipes 存在
                  if (!messageCopy.extra) messageCopy.extra = {};
                  if (!messageCopy.extra.swipes) messageCopy.extra.swipes = [];
-                 messagesToFill.push({ message: messageCopy, mesid: messageIndex });
+                 messagesToFill.push({ message: messageCopy, mesid: messageIndex }); // 保存原始 mesid 用于调试
             } else {
-                console.warn(`${pluginName}: Warning: Favorite message with original mesid ${favItem.messageId} not found. Skipping.`);
+                console.warn(`${pluginName}: Warning: Favorite message with original mesid ${favItem.messageId} not found in original chat. Skipping.`);
             }
         }
 
         // --- 步骤 6: 批量填充消息 ---
+        // 再次检查上下文
         const finalContextForFill = getContext();
         if (finalContextForFill.chatId !== targetPreviewChatId) {
              toastr.error('预览聊天环境发生意外变化，填充操作中止。请重试。');
+             console.error(`${pluginName}: Context mismatch during message filling. Expected ${targetPreviewChatId}, got ${finalContextForFill.chatId}`);
              restoreNormalChatUI();
-             previewState.isActive = false;
+             previewState.isActive = false; // 确保状态重置
              previewState.originalContext = null;
              previewState.previewChatId = null;
              return;
         }
 
         let addedCount = 0;
-        const BATCH_SIZE = 20;
+        const BATCH_SIZE = 20; // 每批处理的消息数量
         for (let i = 0; i < messagesToFill.length; i += BATCH_SIZE) {
             const batch = messagesToFill.slice(i, i + BATCH_SIZE);
             const addPromises = batch.map(item => {
-                return (async () => {
+                return (async () => { // 确保每个 addOneMessage 都是异步的
                     try {
+                        // 使用当前上下文的 addOneMessage
                         await finalContextForFill.addOneMessage(item.message, { scroll: false });
                         addedCount++;
                     } catch (error) {
@@ -1038,19 +1377,20 @@ async function handlePreviewButtonClick() {
                     }
                 })();
             });
-            await Promise.all(addPromises);
+            await Promise.all(addPromises); // 等待当前批次完成
+            // 在批次之间稍作停顿
             if (i + BATCH_SIZE < messagesToFill.length) {
-                 await new Promise(resolve => setTimeout(resolve, 50));
+                 await new Promise(resolve => setTimeout(resolve, 50)); // 50ms delay
             }
         }
 
         // --- 步骤 7: 完成与最终处理 ---
         if (addedCount > 0) {
-            $('#chat').scrollTop(0);
+            $('#chat').scrollTop(0); // 滚动到聊天顶部
             toastr.success(`已在预览模式下显示 ${addedCount} 条收藏消息`);
-        } else if (messagesToFill.length > 0) {
+        } else if (messagesToFill.length > 0) { // 有准备填充的消息但没有成功添加
              toastr.warning('准备了收藏消息，但未能成功添加到预览中。请检查控制台。');
-        } else {
+        } else { // 收藏夹为空或所有收藏消息都无效
              toastr.info('收藏夹为空，已进入（空的）预览模式。点击下方按钮返回。');
         }
 
@@ -1058,7 +1398,7 @@ async function handlePreviewButtonClick() {
         console.error(`${pluginName}: Error during preview generation:`, error);
         const errorMsg = (error instanceof Error && error.message) ? error.message : '请查看控制台获取详细信息';
         toastr.error(`创建预览时出错: ${errorMsg}`);
-        restoreNormalChatUI();
+        restoreNormalChatUI(); // 确保在出错时恢复UI
         previewState.isActive = false;
         previewState.originalContext = null;
         previewState.previewChatId = null;
@@ -1068,10 +1408,12 @@ async function handlePreviewButtonClick() {
 // --- 处理聊天切换事件，用于在离开预览时恢复UI ---
 function handleChatChangeForPreview(newChatId) {
     if (previewState.isActive) {
+        // 如果切换到了非当前预览的聊天
         if (newChatId !== previewState.previewChatId) {
+            console.log(`${pluginName}: Chat changed from preview ${previewState.previewChatId} to ${newChatId}. Restoring UI.`);
             restoreNormalChatUI();
             previewState.isActive = false;
-            previewState.originalContext = null;
+            previewState.originalContext = null; // 清除原始上下文
             previewState.previewChatId = null;
         }
     }
@@ -1079,10 +1421,9 @@ function handleChatChangeForPreview(newChatId) {
 
 
 /**
- * Handles exporting the favorited messages to a text file. (TXT)
+ * 处理将收藏的消息导出到文本文件 (TXT)
  */
 async function handleExportFavorites() {
-    // ... (代码保持不变) ...
     console.log(`${pluginName}: handleExportFavorites - 开始导出收藏 (TXT)`);
     const context = getContext();
     const chatMetadata = ensureFavoritesArrayExists();
@@ -1135,8 +1476,7 @@ async function handleExportFavorites() {
 
         const exportedText = exportLines.join('\n');
         const blob = new Blob([exportedText], { type: 'text/plain;charset=utf-8' });
-        const safeChatName = String(chatName).replace(/[\\/:*?"<>|]/g, '_');
-        const filename = `${safeChatName}_收藏_${exportDate}.txt`;
+        const filename = generateSafeFilename(chatName, 'Favorites', 'TXTExport', 'txt');
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
         link.download = filename;
@@ -1153,36 +1493,28 @@ async function handleExportFavorites() {
 }
 
 /**
- * Handles exporting the favorited messages to a JSONL file,
- * mimicking SillyTavern's native format by including a metadata line first.
- * Exports ONLY the favorited messages AFTER the metadata line, maintaining their original relative order.
+ * 处理将收藏的消息导出到 JSONL 文件
  */
 async function handleExportFavoritesJsonl() {
     console.log(`${pluginName}: handleExportFavoritesJsonl - 开始导出收藏 (JSONL, 带元数据行)`);
     const context = getContext();
-    const chatMetadata = ensureFavoritesArrayExists(); // 这个函数内部已经调用了 getContext 并检查了 chatMetadata
+    const chatMetadata = ensureFavoritesArrayExists();
 
-    // 基础检查
     if (!chatMetadata || !Array.isArray(chatMetadata.favorites) || chatMetadata.favorites.length === 0) {
         toastr.warning('没有收藏的消息可以导出。'); return;
     }
-    // 再次获取 context 用于其他属性，确保 context 本身有效
     if (!context || !context.chat || !Array.isArray(context.chat)) {
         toastr.error('无法获取当前聊天记录以导出收藏。'); return;
     }
 
-    // --- 修正：检查必要的元数据字段是否存在，使用正确的属性名 ---
-    // 优先使用 userAlias，否则用 name1 作为用户名。角色名用 name2。
-    const userName = context.userAlias || context.name1; // 获取用户名
-    const characterName = context.name2; // 获取角色名
+    const userName = context.userAlias || context.name1;
+    const characterName = context.name2;
 
-    // 检查获取到的名字和 chatMetadata 是否有效
     if (!userName || !characterName || !context.chatMetadata) {
          toastr.error('无法获取完整的聊天元数据 (用户名/角色名/元数据对象) 以生成兼容格式。');
-         console.error(`${pluginName}: handleExportFavoritesJsonl - Missing userName (from userAlias/name1), characterName (from name2), or chatMetadata in context`, { userName, characterName, chatMetadata: context.chatMetadata });
+         console.error(`${pluginName}: handleExportFavoritesJsonl - Missing userName, characterName, or chatMetadata in context`, { userName, characterName, chatMetadata: context.chatMetadata });
          return;
     }
-    // --- 修正结束 ---
 
     toastr.info('正在准备导出收藏 (JSONL)...', '导出中');
 
@@ -1191,30 +1523,24 @@ async function handleExportFavoritesJsonl() {
              throw new Error('timestampToMoment function is not available.');
         }
 
-        // 1. 排序收藏项...
         const sortedFavorites = [...chatMetadata.favorites].sort((a, b) => {
              const idA = parseInt(a?.messageId, 10); const idB = parseInt(b?.messageId, 10);
              if (isNaN(idA) && isNaN(idB)) return 0; if (isNaN(idA)) return 1; if (isNaN(idB)) return -1;
              return idA - idB;
         });
 
-        // 2. 初始化消息对象数组...
         const exportMessageObjects = [];
         let exportedMessageCount = 0;
 
-        // 3. 遍历并获取消息 (使用深拷贝)...
         for (let i = 0; i < sortedFavorites.length; i++) {
             const favItem = sortedFavorites[i];
             let messageIndex = NaN;
             if (favItem.messageId !== undefined && favItem.messageId !== null) {
                  messageIndex = parseInt(favItem.messageId, 10);
             }
-             if (isNaN(messageIndex) || messageIndex < 0) continue;
+             if (isNaN(messageIndex) || messageIndex < 0 || messageIndex >= context.chat.length) continue; // 添加边界检查
 
-            let message = null;
-            if (messageIndex < context.chat.length) {
-                message = context.chat[messageIndex];
-            }
+            const message = context.chat[messageIndex];
 
             if (message) {
                 try {
@@ -1228,37 +1554,29 @@ async function handleExportFavoritesJsonl() {
             }
         }
 
-        // 4. 检查是否有消息...
         if (exportedMessageCount === 0) {
             toastr.warning('未能找到任何可导出的收藏消息...'); return;
         }
 
-        // --- 5. 创建元数据对象，使用正确的名字 ---
         const metadataObject = {
-            user_name: userName,             // 使用获取到的用户名
-            character_name: characterName,     // 使用获取到的角色名
-            chat_metadata: context.chatMetadata // 使用当前的 chatMetadata
+            user_name: userName,
+            character_name: characterName,
+            chat_metadata: context.chatMetadata
         };
-        // --- 修正结束 ---
 
-        // 6. 生成最终的 JSONL 文本...
         let exportedJsonlText = '';
         try {
             const metadataLine = JSON.stringify(metadataObject);
             const messageLines = exportMessageObjects.map(obj => JSON.stringify(obj)).join('\n');
-            exportedJsonlText = metadataLine + '\n' + messageLines + '\n';
+            exportedJsonlText = metadataLine + '\n' + messageLines + '\n'; // 添加尾部换行符
             console.log(`[${pluginName}] JSONL Export - JSONL text generated successfully (with metadata line).`);
         } catch (stringifyError) {
             console.error(`[${pluginName}] JSONL Export - Error stringifying objects:`, stringifyError);
             toastr.error('生成 JSONL 文件内容时出错。'); return;
         }
 
-        // 7. 创建 Blob 并触发下载...
         const blob = new Blob([exportedJsonlText], { type: 'application/jsonlines;charset=utf-8' });
-        // 使用 characterName (从 context.name2 获取) 来生成文件名
-        const safeChatName = String(characterName).replace(/[\\/:*?"<>|]/g, '_');
-        const exportDate = timestampToMoment(Date.now()).format('YYYYMMDD_HHmmss');
-        const filename = `${safeChatName}_收藏_${exportDate}.jsonl`;
+        const filename = generateSafeFilename(characterName, 'Favorites', 'JSONLExport', 'jsonl');
 
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
@@ -1268,31 +1586,24 @@ async function handleExportFavoritesJsonl() {
         document.body.removeChild(link);
         URL.revokeObjectURL(link.href);
 
-        // 8. 完成反馈...
         console.log(`${pluginName}: handleExportFavoritesJsonl - Success: Exported ${exportedMessageCount} messages (with metadata line) to ${filename}`);
         toastr.success(`已成功导出 ${exportedMessageCount} 条收藏消息到文件 "${filename}" (JSONL)`, '导出完成');
 
     } catch (error) {
-        // 9. 错误处理...
         console.error(`${pluginName}: handleExportFavoritesJsonl - Error during export:`, error);
         toastr.error(`导出收藏 (JSONL) 时发生错误: ${error.message || '未知错误'}`);
     }
 }
+
 // --- 新增：处理收藏导出为 JSON 世界书格式的函数 ---
 /**
- * Handles exporting the favorited messages to a SillyTavern World Book (JSON) file.
- * 每个收藏的消息会转换为一个世界书条目，设置为常驻（蓝灯），按聊天顺序排序，
- * depth 设为 0，并根据消息发送者插入为 @ D0 (position: 4)，
- * role 分别设为 1 (User) 或 2 (Assistant)。
+ * 处理将收藏的消息导出到 SillyTavern 世界书 (JSON) 文件。
  */
 async function handleExportFavoritesWorldbook() {
-    // 函数开始，记录日志，标明导出格式
     console.log(`${pluginName}: handleExportFavoritesWorldbook - 开始导出收藏 (世界书 JSON)`);
-    // 获取当前上下文和收藏元数据
     const context = getContext();
     const chatMetadata = ensureFavoritesArrayExists();
 
-    // 检查是否有收藏项或者上下文/聊天记录是否有效
     if (!chatMetadata || !Array.isArray(chatMetadata.favorites) || chatMetadata.favorites.length === 0) {
         toastr.warning('没有收藏的消息可以导出为世界书。');
         console.log(`${pluginName}: handleExportFavoritesWorldbook - 没有收藏，导出中止`);
@@ -1304,109 +1615,85 @@ async function handleExportFavoritesWorldbook() {
         return;
     }
 
-    // 提示用户正在进行世界书导出
     toastr.info('正在准备导出收藏 (世界书 JSON)...', '导出中');
 
     try {
-        // 再次确认时间格式化函数可用
         if (typeof timestampToMoment !== 'function') {
             console.error(`${pluginName}: timestampToMoment function is not available.`);
             toastr.error('导出功能所需的时间格式化工具不可用。');
             return;
         }
 
-        // 将收藏项按其原始消息 ID (messageId，即索引) 排序，确保世界书条目顺序与聊天顺序一致
         const sortedFavorites = [...chatMetadata.favorites].sort((a, b) => parseInt(a.messageId) - parseInt(b.messageId));
 
-        // 初始化世界书的基础结构 { "entries": {} }
         const worldbookData = {
             entries: {}
         };
-        // 记录成功转换并添加到世界书的消息数量
         let exportedEntryCount = 0;
 
-        // --- 遍历已排序的收藏项，生成对应的世界书条目 ---
         for (const favItem of sortedFavorites) {
-            // 获取原始消息索引
             const messageIndex = parseInt(favItem.messageId, 10);
-            // 从 context.chat 中查找原始消息对象
             const message = (!isNaN(messageIndex) && context.chat[messageIndex]) ? context.chat[messageIndex] : null;
 
             if (message) {
-                // 如果找到了原始消息
-                exportedEntryCount++; // 计数增加
+                exportedEntryCount++;
 
-                // --- 修改：根据用户最新要求设置 depth 和 role ---
                 const position = 4; // @ D0 对应的 position 固定为 4
                 const roleValue = message.is_user ? 1 : 2; // 用户消息 role=1, AI消息 role=2
                 const depthValue = 0; // 明确设置 depth 为 0
-                // --- 修改结束 ---
 
-                // 创建世界书条目对象
                 const worldEntry = {
-                    uid: messageIndex, // 使用消息索引作为 uid
-                    key: [], // 常驻条目，关键词列表为空
-                    keysecondary: [], // 次要关键词列表为空
-                    comment: `收藏消息 #${messageIndex} - ${message.name}`, // 备注，方便识别
-                    content: message.mes || "", // 条目内容即消息内容
-                    constant: true, // 设置为常驻 (蓝灯)
-                    vectorized: false, // 不使用向量匹配
-                    selective: false, // 不使用次要关键词逻辑
-                    selectiveLogic: 0, // 默认逻辑
-                    addMemo: true, // UI 显示备注
-                    order: messageIndex, // 使用消息索引作为插入顺序，保证按聊天顺序插入
-                    position: position, // 设置为 4，代表 @ D
-                    disable: false, // 条目启用
-                    excludeRecursion: false, // 允许被递归（对常驻条目影响不大）
-                    preventRecursion: true, // 阻止从此条目进一步递归（推荐）
-                    delayUntilRecursion: false, // 不延迟
-                    probability: 100, // 概率 100%
-                    useProbability: false, // 禁用概率（因为是 100%）
+                    uid: messageIndex,
+                    key: [],
+                    keysecondary: [],
+                    comment: `收藏消息 #${messageIndex} - ${message.name}`,
+                    content: message.mes || "",
+                    constant: true,
+                    vectorized: false,
+                    selective: false,
+                    selectiveLogic: 0,
+                    addMemo: true,
+                    order: messageIndex,
+                    position: position,
+                    disable: false,
+                    excludeRecursion: false,
+                    preventRecursion: true,
+                    delayUntilRecursion: false,
+                    probability: 100,
+                    useProbability: false,
                     depth: depthValue, // *** 修改：明确设置为 0 ***
-                    group: "", // 不分组
-                    groupOverride: false, // 不覆盖组设置
-                    groupWeight: 100, // 默认组权重
-                    scanDepth: null, // 扫描深度覆盖 (常驻条目不需要扫描，设为 null 或 0 均可)
-                    caseSensitive: null, // 使用全局大小写设置
-                    matchWholeWords: null, // 使用全局全词匹配设置
-                    useGroupScoring: null, // 使用全局组评分设置
-                    automationId: "", // 无自动化 ID
+                    group: "",
+                    groupOverride: false,
+                    groupWeight: 100,
+                    scanDepth: null,
+                    caseSensitive: null,
+                    matchWholeWords: null,
+                    useGroupScoring: null,
+                    automationId: "",
                     role: roleValue, // *** 修改：配合 position=4，指定角色 1 (User) 或 2 (Assistant) ***
-                    sticky: 0, // 无粘滞
-                    cooldown: 0, // 无冷却
-                    delay: 0, // 无延迟
-                    displayIndex: messageIndex // UI 显示顺序也按消息索引
+                    sticky: 0,
+                    cooldown: 0,
+                    delay: 0,
+                    displayIndex: messageIndex
                 };
-
-                // 将创建的条目添加到 worldbookData.entries 对象中，使用消息索引作为键
                 worldbookData.entries[messageIndex.toString()] = worldEntry;
-
             } else {
-                // 如果原始消息找不到，记录警告
                 console.warn(`${pluginName}: handleExportFavoritesWorldbook - 找不到索引为 ${favItem.messageId} 的原始消息，将跳过此条目的世界书导出。`);
             }
         }
 
-        // 检查是否实际导出了任何条目
         if (exportedEntryCount === 0) {
             toastr.warning('所有收藏项对应的原始消息均无法找到，无法生成世界书文件。');
             console.log(`${pluginName}: handleExportFavoritesWorldbook - 未找到有效的原始消息可导出。`);
             return;
         }
 
-        // --- 将世界书数据序列化为格式化的 JSON 字符串 ---
         const exportedJsonText = JSON.stringify(worldbookData, null, 2);
-
-        // --- 创建 Blob 对象并触发下载 ---
         const blob = new Blob([exportedJsonText], { type: 'application/json;charset=utf-8' });
 
-        // 生成文件名
         const chatName = context.characterId ? context.name2 : (context.groups?.find(g => g.id === context.groupId)?.name || '群聊');
-        const exportDate = timestampToMoment(Date.now()).format('YYYYMMDD_HHmmss');
-        const safeChatName = String(chatName).replace(/[\\/:*?"<>|]/g, '_');
-        const filename = `${safeChatName}_收藏世界书_${exportDate}.json`;
+        const filename = generateSafeFilename(chatName, 'FavWorldBook', 'JSONExport', 'json');
 
-        // 下载机制
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
         link.download = filename;
@@ -1415,27 +1702,37 @@ async function handleExportFavoritesWorldbook() {
         document.body.removeChild(link);
         URL.revokeObjectURL(link.href);
 
-        // 记录成功日志并提示用户
         console.log(`${pluginName}: handleExportFavoritesWorldbook - 成功导出 ${exportedEntryCount} 条收藏消息到 ${filename} (世界书 JSON)`);
         toastr.success(`已成功导出 ${exportedEntryCount} 条收藏消息到文件 "${filename}" (世界书 JSON)`, '导出完成');
 
     } catch (error) {
-        // 错误处理
         console.error(`${pluginName}: handleExportFavoritesWorldbook - 导出过程中发生错误:`, error);
         toastr.error(`导出收藏 (世界书 JSON) 时发生错误: ${error.message || '未知错误'}`);
     }
 }
 // --- 世界书导出函数结束 ---
+
 /**
- * Main entry point for the plugin
+ * 插件的主要入口点
  */
 jQuery(async () => {
     try {
         console.log(`${pluginName}: 插件加载中...`);
 
-        // Inject CSS styles
+        // --- 新增：加载 html2canvas ---
+        try {
+            await loadScript(H2C_LIB_PATH); // 使用定义的路径
+            html2canvasLoaded = true;
+            console.log(`${pluginName}: html2canvas library loaded successfully from ${H2C_LIB_PATH}.`);
+            toastr.success('截图功能库已加载。', 'Star 插件', {timeOut: 2000});
+        } catch (error) {
+            html2canvasLoaded = false;
+            console.error(`${pluginName}: Failed to load html2canvas library from ${H2C_LIB_PATH}:`, error);
+            toastr.error(`截图功能库 (html2canvas) 加载失败，相关功能将不可用。请检查路径 '${H2C_LIB_PATH}' 是否正确并清理浏览器缓存。`, 'Star 插件错误', {timeOut: 10000, extendedTimeOut: 5000});
+        }
+        // --- 加载结束 ---
+
         const styleElement = document.createElement('style');
-        // --- 修改：确保下拉菜单样式能容纳新选项 ---
         styleElement.innerHTML = `
             /* ... (大部分原有样式保持不变) ... */
             #favorites-popup-content { padding: 10px; max-height: 70vh; overflow-y: auto; }
@@ -1443,15 +1740,14 @@ jQuery(async () => {
             #favorites-popup-content .favorites-header h3 { margin: 0; flex-grow: 1; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
             #favorites-popup-content .favorites-header .favorites-header-buttons { display: flex; align-items: center; gap: 8px; flex-shrink: 0; position: relative; }
 
-            /* 导出下拉菜单样式 */
             .favorites-export-dropdown { position: relative; display: inline-block; }
-            #export-favorites-trigger-btn { /* 保持 menu_button 基础样式 */ }
+            #export-favorites-trigger-btn {}
             #favorites-export-menu {
                 display: none; position: absolute; top: 100%; left: 0;
                 background-color: var(--SmartThemeBodyBgDarker, #2a2a2e); border: 1px solid var(--SmartThemeBorderColor, #444);
                 border-radius: 4px; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
                 padding: 5px 0; margin: 2px 0 0 0;
-                min-width: 150px; /* 可能需要适当增加最小宽度以容纳更长的文本 */
+                min-width: 150px;
                 z-index: 10; list-style: none;
             }
             .favorites-export-item {
@@ -1459,7 +1755,6 @@ jQuery(async () => {
                 font-size: 0.9em; white-space: nowrap;
             }
             .favorites-export-item:hover { background-color: var(--SmartThemeHoverBg, rgba(255, 255, 255, 0.1)); }
-            /* --- 下拉菜单样式结束 --- */
 
             #favorites-popup-content .favorites-divider { height: 1px; background-color: var(--SmartThemeBorderColor, #ccc); margin: 10px 0; }
             #favorites-popup-content .favorites-list { margin: 10px 0; }
@@ -1474,6 +1769,8 @@ jQuery(async () => {
             #favorites-popup-content .fav-actions i:hover { background-color: rgba(255, 255, 255, 0.1); }
             #favorites-popup-content .fav-actions .fa-pencil { color: var(--SmartThemeLinkColor, #3a87ff); }
             #favorites-popup-content .fav-actions .fa-trash { color: var(--SmartThemeDangerColor, #ff3a3a); }
+            #favorites-popup-content .fav-actions .favorite-screenshot-icon { color: var(--SmartThemeInfoColor, #4caeff); } /* 新增：截图图标颜色 */
+            #favorites-popup-content .fav-actions .favorite-screenshot-icon-disabled { color: #777; cursor: not-allowed; } /* 新增：禁用的截图图标颜色 */
             .favorite-toggle-icon { cursor: pointer; }
             .favorite-toggle-icon i.fa-regular { color: var(--SmartThemeIconColorMuted, #999); }
             .favorite-toggle-icon i.fa-solid { color: var(--SmartThemeAccentColor, #ffcc00); }
@@ -1484,12 +1781,11 @@ jQuery(async () => {
             #favorites-popup-content .fav-send-date { font-size: 0.75em; color: #bbb; text-align: left; display: inline-flex; flex-shrink: 0; align-items: baseline; white-space: nowrap; }
             #favorites-popup-content .fav-send-date .fav-mesid { margin-left: 8px; color: #999; font-size: 0.9em; }
             #favorites-popup-content .fav-header-info { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; flex-wrap: wrap; gap: 10px; }
-            #${returnButtonId} { display: block; width: fit-content; margin: 15px auto; padding: 8px 15px; background-color: var(--SmartThemeBtnBg); color: var(--SmartThemeBtnFg); border: 1px solid var(--SmartThemeBtnBorder); border-radius: 5px; cursor: pointer; text-align: center; }
-            #${returnButtonId}:hover { background-color: var(--SmartThemeBtnBgHover); color: var(--SmartThemeBtnFgHover); border-color: var(--SmartThemeBtnBorderHover); }
+            .favorites-preview-controls { display: flex; justify-content: center; align-items: center; gap: 10px; margin: 15px auto; } /* 新增：预览控制按钮容器 */
+            .favorites-preview-controls .menu_button { padding: 8px 15px; }
         `;
         document.head.appendChild(styleElement);
 
-        // Add button to the data bank wand container
         try {
             const inputButtonHtml = await renderExtensionTemplateAsync(`third-party/${pluginName}`, 'input_button');
             $('#data_bank_wand_container').append(inputButtonHtml);
@@ -1501,7 +1797,6 @@ jQuery(async () => {
             console.error(`${pluginName}: 加载或注入 input_button.html 失败:`, error);
         }
 
-        // Add settings to extension settings
         try {
             const settingsHtml = await renderExtensionTemplateAsync(`third-party/${pluginName}`, 'settings_display');
             $('#extensions_settings').append(settingsHtml);
@@ -1510,33 +1805,27 @@ jQuery(async () => {
             console.error(`${pluginName}: 加载或注入 settings_display.html 失败:`, error);
         }
 
-        // Set up event delegation for favorite toggle icon
         $(document).on('click', '.favorite-toggle-icon', handleFavoriteToggle);
 
-        // Initialize favorites array for current chat on load
         ensureFavoritesArrayExists();
-
-        // Initial UI setup
         addFavoriteIconsToMessages();
         refreshFavoriteIconsInView();
-        restoreNormalChatUI();
+        restoreNormalChatUI(); // 确保初始状态是正常UI
 
-        // --- Event Listeners (保持不变) ---
         eventSource.on(event_types.CHAT_CHANGED, (newChatId) => {
-            handleChatChangeForPreview(newChatId);
+            handleChatChangeForPreview(newChatId); // 这个应该在 ensureFavoritesArrayExists 之前，以正确重置预览状态
             ensureFavoritesArrayExists();
-            // Manual switch back check...
-             if (!previewState.isActive) { /* ... check logic ... */
+             if (!previewState.isActive) {
                 const previewChatsMap = extension_settings[pluginName]?.previewChats;
                 if (previewChatsMap && Object.values(previewChatsMap).includes(newChatId)) {
-                     toastr.info(/* ... toastr message ... */
+                     toastr.info(
                         `注意：当前聊天 "${newChatId}" 是收藏预览聊天。此聊天仅用于预览收藏消息，内容会在每次<预览>前清空。请勿在此聊天中发送消息。`,
                         '进入收藏预览聊天',
                         { timeOut: 8000, extendedTimeOut: 4000, preventDuplicates: true, positionClass: 'toast-top-center' }
                     );
                 }
             }
-            setTimeout(() => {
+            setTimeout(() => { // 延迟以确保聊天DOM已更新
                 addFavoriteIconsToMessages();
                 refreshFavoriteIconsInView();
             }, 150);
@@ -1550,10 +1839,10 @@ jQuery(async () => {
                 chatMetadata.favorites.splice(favIndex, 1);
                 saveMetadataDebounced();
                 if (favoritesPopup && favoritesPopup.dlg && favoritesPopup.dlg.hasAttribute('open')) {
-                    currentPage = 1;
+                    currentPage = 1; // 重置到第一页
                     updateFavoritesPopup();
                 }
-                 setTimeout(refreshFavoriteIconsInView, 100);
+                 setTimeout(refreshFavoriteIconsInView, 100); // 刷新聊天中的图标
             }
         });
         const handleNewMessage = () => { setTimeout(addFavoriteIconsToMessages, 150); };
@@ -1564,7 +1853,6 @@ jQuery(async () => {
         eventSource.on(event_types.MESSAGE_UPDATED, handleMessageUpdateOrSwipe);
         eventSource.on(event_types.MORE_MESSAGES_LOADED, () => { setTimeout(() => { addFavoriteIconsToMessages(); refreshFavoriteIconsInView(); }, 150); });
 
-        // --- MutationObserver (保持不变) ---
         const chatObserver = new MutationObserver((mutations) => {
             let needsIconAddition = false;
             for (const mutation of mutations) {
@@ -1583,8 +1871,7 @@ jQuery(async () => {
         if (chatElement) { chatObserver.observe(chatElement, { childList: true, subtree: true }); }
         else { console.error(`${pluginName}: 未找到 #chat 元素，无法启动 MutationObserver`); }
 
-        // 修改：更新日志，包含所有导出格式
-        console.log(`${pluginName}: 插件加载完成! (包含 TXT/JSONL/世界书 导出和预览功能)`);
+        console.log(`${pluginName}: 插件加载完成! (包含 TXT/JSONL/世界书 导出、截图和预览功能)`);
     } catch (error) {
         console.error(`${pluginName}: 初始化过程中出错:`, error);
     }
