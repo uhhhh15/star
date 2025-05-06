@@ -88,14 +88,6 @@ function loadScript(url) {
     });
 }
 
-// --- 新增：截图并下载的辅助函数 ---
-/**
- * --- 新增：截图并下载的辅助函数 ---
- * @param {HTMLElement} element - 要截图的 DOM 元素
- * @param {string} filename - 下载文件的名称
- * @param {object} options - 传递给 html2canvas 的额外选项
- * @returns {Promise<boolean>} - 返回截图是否成功
- */
 /**
  * --- 新增：截图并下载的辅助函数 ---
  * @param {HTMLElement} element - 要截图的 DOM 元素
@@ -320,20 +312,8 @@ async function captureAndDownload(element, filename, options = {}) {
         console.log(`${pluginName}: Screenshot process finished for ${filename}. All temporary styles (if any) have been restored.`);
     }
 }
-Use code with caution.
-JavaScript
-关键点再次强调：
-样式管理 (originalStyles, storeAndApplyStyle, restoreOriginalStyles)： 这是确保在函数内对 DOM进行的临时样式修改能够被可靠恢复的核心。
-短截图 (.favorite-item)：
-内部滚动元素 (.fav-preview) 的展开逻辑已包含在函数内。
-使用 getBoundingClientRect() 来获取其在视口中的位置和尺寸，并传递给 html2canvas 的 x, y, width, height 选项。这对于处理有 transform 的弹窗（如 <dialog>）是比较推荐的做法，尽管并非完美。
-长截图 (#chat)：
-此函数本身不处理 #chat 及其父容器的展开。 它假设调用方已经完成了这些预处理步骤，并传入了一个完全展开的 #chat 元素。
-html2canvas 的 width, height, windowWidth, windowHeight 选项都基于传入的已展开元素的 scrollWidth 和 scrollHeight。
-x 和 y 选项设为 0。
-错误处理： 保持了之前比较详细的错误分类和提示。
-finally 块： 确保 restoreOriginalStyles() 总能被执行。
-请将此函数替换掉你项目中旧的 captureAndDownload 函数，并确保在调用它进行长截图时，调用方正确地实现了展开 #chat 及其父容器的逻辑（如之前讨论的 screenshotAllButton.on('click', ...) 中的修改）。
+
+
 // --- 新增：生成安全的文件名 ---
 function generateSafeFilename(baseName, type, identifier, extension = 'png') {
     const dateStr = timestampToMoment(Date.now()).format('YYYYMMDDHHmmss');
