@@ -2,7 +2,7 @@
 
 /* 收藏夹弹窗样式 */
 .favorites-popup-content {
-    /* padding: 10px; */ /* 在 index.js 的 <style> 中已定义 (Already defined in <style> in index.js) */
+    /* padding: 10px; */ /* 在 index.js 的 <style> 中已定义 */
     /* max-height: 70vh; */ /* 在 index.js 的 <style> 中已定义 */
     /* overflow-y: auto; */ /* 在 index.js 的 <style> 中已定义 */
 }
@@ -31,7 +31,7 @@
      display: flex;
      gap: 8px;
      flex-shrink: 0;
-     position: relative; /* 为了导出下拉菜单定位 (For export dropdown positioning) */
+     position: relative; /* 为了导出下拉菜单定位*/
 }
 /* --- 头部样式结束 --- */
 /* --- End of header styles --- */
@@ -150,7 +150,7 @@
 /* 新增：截图图标样式 */
 /* New: Screenshot icon styles */
 .fav-actions .favorite-screenshot-icon {
-    color: var(--SmartThemeInfoColor, #4caeff); /* 使用主题信息色或备用蓝色 (Use theme info color or fallback blue) */
+    color: var(--SmartThemeInfoColor, #4caeff); /* 使用主题信息色或备用蓝色 */
 }
 .fav-actions .favorite-screenshot-icon-disabled {
     color: #777; /* 灰色表示禁用 (Gray for disabled) */
@@ -159,7 +159,7 @@
 .fav-actions .favorite-screenshot-icon:hover,
 .fav-actions .fa-pencil:hover,
 .fav-actions .fa-trash:hover {
-    background-color: rgba(255, 255, 255, 0.15); /* 统一悬停效果 (Uniform hover effect) */
+    background-color: rgba(255, 255, 255, 0.15); /* 统一悬停效果*/
 }
 
 
@@ -220,26 +220,26 @@
 /* 返回预览按钮和新增的截取所有预览按钮的容器样式 */
 .favorites-preview-controls {
     display: flex;
-    justify-content: center; /* 居中对齐按钮 (Center align buttons) */
+    justify-content: center; /* 居中对齐按钮 */
     align-items: center;
-    gap: 10px; /* 按钮间距 (Gap between buttons) */
-    margin: 15px auto; /* 上下边距，并水平居中容器 (Top/bottom margin, and horizontally center the container) */
-    padding: 5px 0; /* 轻微的上下内边距 (Slight top/bottom padding) */
+    gap: 10px; /* 按钮间距 */
+    margin: 15px auto; /* 上下边距，并水平居中容器 */
+    padding: 5px 0; /* 轻微的上下内边距 */
 }
 
 /* 确保预览控制区的按钮样式与之前返回按钮的独立样式一致或更好 */
 .favorites-preview-controls .menu_button {
-    width: auto; /* 根据内容调整宽度 (Adjust width based on content) */
-    padding: 8px 15px; /* 舒适的内边距 (Comfortable padding) */
-    /* 继承自 .menu_button 的其他样式，如背景、边框等 (Inherits other styles from .menu_button like background, border, etc.) */
+    width: auto; /* 根据内容调整宽度 */
+    padding: 8px 15px; /* 舒适的内边距 */
+    /* 继承自 .menu_button 的其他样式，如背景、边框等 */
 }
 
 /* 旧的 #favorites-return-button 独立样式可以保留作为备用，但优先使用 .favorites-preview-controls 内的统一样式 */
-#favorites-return-button { /* 这是预览模式下的返回按钮 ID (This is the ID of the return button in preview mode) */
-    /* display: block; */ /* 由 flex 容器控制 (Controlled by flex container) */
+#favorites-return-button { /* 这是预览模式下的返回按钮 ID */
+    /* display: block; */ /* 由 flex 容器控制 */
     /* width: fit-content; */
     /* margin: 15px auto; */ /* 由 flex 容器控制 */
-    /* padding: 8px 15px; */ /* 移至 .favorites-preview-controls .menu_button (Moved to .favorites-preview-controls .menu_button) */
+    /* padding: 8px 15px; */ /* 移至 .favorites-preview-controls .menu_button */
     background-color: var(--SmartThemeBtnBg);
     color: var(--SmartThemeBtnFg);
     border: 1px solid var(--SmartThemeBtnBorder);
@@ -269,16 +269,16 @@
 #favorites-export-menu {
     display: none;
     position: absolute;
-    top: 100%; /* 位于触发按钮下方 (Below the trigger button) */
-    left: 0;   /* 与触发按钮左对齐 (Left-align with the trigger button) */
+    top: 100%; /* 位于触发按钮下方 */
+    left: 0;   /* 与触发按钮左对齐 */
     background-color: var(--SmartThemeBodyBgDarker, #2a2a2e);
     border: 1px solid var(--SmartThemeBorderColor, #444);
     border-radius: 4px;
     box-shadow: 0 2px 5px rgba(0,0,0,0.3);
     padding: 5px 0;
     margin: 2px 0 0 0;
-    min-width: 180px; /* 确保足够宽度以容纳文本 (Ensure enough width for text) */
-    z-index: 1050; /* 确保在其他弹窗元素之上 (Ensure it's above other popup elements) */
+    min-width: 180px; /* 确保足够宽度以容纳文本 */
+    z-index: 1050; /* 确保在其他弹窗元素之上 */
     list-style: none;
 }
 
@@ -287,7 +287,7 @@
     cursor: pointer;
     color: var(--SmartThemeFg);
     font-size: 0.9em;
-    white-space: nowrap; /* 防止菜单项换行 (Prevent menu items from wrapping) */
+    white-space: nowrap; /* 防止菜单项换行 */
 }
 
 .favorites-export-item:hover {
