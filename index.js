@@ -56,7 +56,7 @@ if (!extension_settings[pluginName]) {
 // --- 新增：html2canvas 加载状态 ---
 // --- New: html2canvas loading state ---
 let html2canvasLoaded = false;
-let H2C_LIB_PATH = 'extensions/third-party/star/lib/html2canvas.min.js'; // 确保这个路径正确！ (Ensure this path is correct!)
+let H2C_LIB_PATH = 'scripts/extensions/third-party/star/lib/html2canvas.min.js'; // 确保这个路径正确！ (Ensure this path is correct!)
 
 // --- 新增：预览状态管理 ---
 // --- New: Preview state management ---
