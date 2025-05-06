@@ -96,6 +96,14 @@ function loadScript(url) {
  * @param {object} options - 传递给 html2canvas 的额外选项
  * @returns {Promise<boolean>} - 返回截图是否成功
  */
+// --- 新增：截图并下载的辅助函数 ---
+/**
+ * --- 新增：截图并下载的辅助函数 ---
+ * @param {HTMLElement} element - 要截图的 DOM 元素
+ * @param {string} filename - 下载文件的名称
+ * @param {object} options - 传递给 html2canvas 的额外选项
+ * @returns {Promise<boolean>} - 返回截图是否成功
+ */
 async function captureAndDownload(element, filename, options = {}) {
     // 检查 html2canvas 是否已加载
     if (!html2canvasLoaded || typeof html2canvas === 'undefined') {
@@ -106,9 +114,6 @@ async function captureAndDownload(element, filename, options = {}) {
     try {
         // 显示加载提示
         toastr.info(`正在生成截图: ${filename}...`, '请稍候', { timeOut: 3000, extendedTimeOut: 2000 });
-
-        // 获取元素在视口中的位置和尺寸
-        const rect = element.getBoundingClientRect();
 
         // --- 基础默认选项 ---
         let defaultOptions = {
@@ -123,83 +128,164 @@ async function captureAndDownload(element, filename, options = {}) {
         if (element.classList.contains('favorite-item')) {
             // --- 截取收藏弹窗中的单个收藏项 (.favorite-item) ---
             console.log(`${pluginName}: Capturing a .favorite-item element.`);
-            // 尝试获取元素自身的计算背景色，如果透明则回退
-            defaultOptions.backgroundColor = getComputedStyle(element).getPropertyValue('background-color').trim();
-            if (!defaultOptions.backgroundColor || defaultOptions.backgroundColor === 'rgba(0, 0, 0, 0)' || defaultOptions.backgroundColor === 'transparent') {
-                 defaultOptions.backgroundColor = getComputedStyle(document.body).getPropertyValue('--SmartThemeBodyBgDarker').trim() || '#2a2a2e'; // 备用色
+            
+            // 获取元素自身的计算背景色，如果透明则回退
+            let bgColor = getComputedStyle(element).getPropertyValue('background-color').trim();
+            if (!bgColor || bgColor === 'rgba(0, 0, 0, 0)' || bgColor === 'transparent') {
+                 // 尝试获取父级弹窗的背景色 (通常是 <dialog> 或其容器)
+                 const popupContainer = element.closest('.popup, dialog'); // 更通用的选择器
+                 if (popupContainer) {
+                    bgColor = getComputedStyle(popupContainer).getPropertyValue('background-color').trim();
+                 }
+                 // 如果弹窗也是透明，则使用更通用的备用色
+                 if (!bgColor || bgColor === 'rgba(0, 0, 0, 0)' || bgColor === 'transparent') {
+                    // 尝试从 :root 或 body 获取 --SmartThemeBodyBgDarker CSS 变量
+                    let bodyBgColor = getComputedStyle(document.documentElement).getPropertyValue('--SmartThemeBodyBgDarker').trim() ||
+                                      getComputedStyle(document.body).getPropertyValue('--SmartThemeBodyBgDarker').trim();
+                    if (bodyBgColor) {
+                        bgColor = bodyBgColor;
+                    } else {
+                        bgColor = '#2a2a2e'; // 最终备用色
+                    }
+                 }
             }
-            // 关键：对于弹窗内元素，明确指定其在视口中的位置和尺寸
-            defaultOptions.x = rect.left;
-            defaultOptions.y = rect.top;
-            defaultOptions.width = rect.width;   // 或者使用 element.offsetWidth
-            defaultOptions.height = rect.height; // 或者使用 element.offsetHeight
+            defaultOptions.backgroundColor = bgColor;
+
+            // **调整点 1：对于单个元素截图，不再手动设置 x, y, width, height 选项。**
+            // 让 html2canvas 直接渲染传入的 `element`，它会尝试捕获该元素的全部内容。
+            // 这些属性之前是基于 getBoundingClientRect()，这对于有 transform 的弹窗内元素可能不准确。
+            // (由于 defaultOptions 中未预设这些，所以无需 delete，仅作说明。但要确保外部 options 不会覆盖)
+            if (options.x !== undefined) delete options.x;
+            if (options.y !== undefined) delete options.y;
+            if (options.width !== undefined) delete options.width;
+            if (options.height !== undefined) delete options.height;
+
 
         } else if (element.id === 'chat') {
-            // --- 截取 #chat (长截图) - 策略 C: 明确高度 + 缓冲区 ---
-            console.log(`${pluginName}: Capturing #chat element (attempting full scroll content - Strategy C: Explicit height + Buffer).`);
+            // --- 截取 #chat (长截图) ---
+            console.log(`${pluginName}: Capturing #chat element (attempting full scroll content).`);
 
             // 背景色处理
-            defaultOptions.backgroundColor = getComputedStyle(element).getPropertyValue('background-color').trim();
-            if (!defaultOptions.backgroundColor || defaultOptions.backgroundColor === 'rgba(0, 0, 0, 0)' || defaultOptions.backgroundColor === 'transparent') {
-                defaultOptions.backgroundColor = getComputedStyle(document.body).getPropertyValue('--main-bg-color').trim() || '#1e1e1e'; // 主题变量或备用色
+            let chatBgColor = getComputedStyle(element).getPropertyValue('background-color').trim();
+            if (!chatBgColor || chatBgColor === 'rgba(0, 0, 0, 0)' || chatBgColor === 'transparent') {
+                 // 尝试从 :root 或 body 获取 --main-bg-color CSS 变量
+                let mainBgColor = getComputedStyle(document.documentElement).getPropertyValue('--main-bg-color').trim() ||
+                                  getComputedStyle(document.body).getPropertyValue('--main-bg-color').trim();
+                if (mainBgColor) {
+                    chatBgColor = mainBgColor;
+                } else {
+                    chatBgColor = '#1e1e1e'; // 主题变量或备用色
+                }
             }
+            defaultOptions.backgroundColor = chatBgColor;
 
-            // --- 策略 C ---
-            const buffer = 100; // 增加 100 像素的缓冲区，可以调整这个值
-            defaultOptions.width = element.scrollWidth;
-            defaultOptions.height = element.scrollHeight + buffer; // **在 scrollHeight 上加一点缓冲区**
+            // **调整点 2：长截图的关键选项**
+            // 确保传入的 element 确实是可滚动的容器本身
+            defaultOptions.width = element.scrollWidth;           // 画布宽度设为元素内容的总宽度
+            defaultOptions.height = element.scrollHeight;          // 画布高度设为元素内容的总高度
+            defaultOptions.windowWidth = element.scrollWidth;      // 渲染窗口宽度设为元素内容总宽度
+            defaultOptions.windowHeight = element.scrollHeight;     // 渲染窗口高度设为元素内容总高度
+            
+            // 当直接截取 element 时，x 和 y 通常相对于 element 本身的左上角，所以是 0。
+            defaultOptions.x = 0;
+            defaultOptions.y = 0;
+            
+            // 元素自身的滚动位置。对于“完整长截图”，通常是从 (0,0) 开始截取。
+            defaultOptions.scrollX = 0; 
+            defaultOptions.scrollY = 0;
 
-            // 补偿页面滚动（仍然可能需要）
-            defaultOptions.scrollX = -window.pageXOffset; // 尝试负值补偿
-            defaultOptions.scrollY = -window.pageYOffset; // 尝试负值补偿
+            // --- 重要提示：关于长截图 ---
+            // 为了让 html2canvas 正确捕获 #chat 的全部滚动内容，
+            // **调用此函数前**，你需要在调用方执行以下操作：
+            //
+            // 示例 (在 screenshotAllButton.on('click', ...) 回调中):
+            //
+            // const chatElement = document.getElementById('chat');
+            // if (chatElement) {
+            //     const originalStyles = {
+            //         height: chatElement.style.height,
+            //         overflow: chatElement.style.overflow, // 或 overflowY, overflowX
+            //         // 可能还需要保存父容器的样式，如果 #chat 的尺寸受父容器的 overflow:hidden 限制
+            //     };
+            //
+            //     // 1. 展开元素以显示所有内容
+            //     chatElement.style.height = chatElement.scrollHeight + 'px';
+            //     chatElement.style.overflow = 'visible'; // 重要！确保内容不会被裁剪
+            //
+            //     // (可选，但推荐) 如果 #chat 的父容器有 overflow:hidden，也需要临时修改
+            //     // const parent = chatElement.parentElement;
+            //     // if (parent && getComputedStyle(parent).overflow === 'hidden') {
+            //     //    originalStyles.parentOverflow = parent.style.overflow;
+            //     //    parent.style.overflow = 'visible';
+            //     // }
+            //
+            //     // 等待一帧，确保样式应用和浏览器重绘 (非常重要)
+            //     await new Promise(resolve => requestAnimationFrame(resolve)); 
+            //
+            //     // 2. 调用截图函数
+            //     const success = await captureAndDownload(chatElement, filename, { /* h2cOptions */ });
+            //
+            //     // 3. 恢复原始样式 (无论成功与否)
+            //     chatElement.style.height = originalStyles.height;
+            //     chatElement.style.overflow = originalStyles.overflow;
+            //     // if (originalStyles.parentOverflow && parent) {
+            //     //    parent.style.overflow = originalStyles.parentOverflow;
+            //     // }
+            // }
+            //
+            // 这个 CSS 修改和恢复的逻辑应该在 captureAndDownload 的调用方处理，
+            // 以保持此函数的通用性，并确保样式正确恢复。
 
-            // 设置 x, y 为元素在文档中的绝对位置
-            defaultOptions.x = rect.left + window.pageXOffset;
-            defaultOptions.y = rect.top + window.pageYOffset;
-
-            // 移除 windowWidth/Height
-            delete defaultOptions.windowWidth;
-            delete defaultOptions.windowHeight;
-            // --- 策略 C 结束 ---
         } else {
             // 如果不是 .favorite-item 或 #chat，执行默认截图或报错
              console.warn(`[${pluginName}] captureAndDownload called on unsupported element:`, element);
-             // 可以选择使用基本选项尝试截图
-             const fallbackOptions = { ...defaultOptions, ...options, x: rect.left, y: rect.top, width: rect.width, height: rect.height };
-             const fallbackCanvas = await html2canvas(element, fallbackOptions);
-             // ... 下载 fallbackCanvas ...
-             // 或者直接报错
-             // throw new Error('Unsupported element type for captureAndDownload');
-             toastr.error('不支持的截图元素类型。');
-             return false; // 返回失败
+             // 对于未知元素，尝试使用其getBoundingClientRect来定义截图区域
+             // 注意：这对于有 transform 的元素可能仍然不准确
+             const rect = element.getBoundingClientRect();
+             const fallbackOptions = {
+                 ...defaultOptions, // 继承 scale, useCORS 等
+                 x: rect.left,
+                 y: rect.top,
+                 width: rect.width,
+                 height: rect.height,
+                 // 合并外部传入的 options，外部 options 优先级更高
+                 ...options
+             };
+             // 直接使用合并后的 fallbackOptions
+             const h2cOptions = fallbackOptions;
+             console.log(`[${pluginName}] html2canvas options for fallback "${filename}":`, h2cOptions, "Element:", element);
+             const fallbackCanvas = await html2canvas(element, h2cOptions);
+             
+             // 下载逻辑 (与下方主逻辑相同)
+             const dataUrl = fallbackCanvas.toDataURL('image/png');
+             if (!dataUrl || dataUrl === 'data:,') {
+                  throw new Error('未能从画布生成数据URL (fallback)。');
+             }
+             const link = document.createElement('a');
+             link.href = dataUrl;
+             link.download = filename;
+             document.body.appendChild(link);
+             link.click();
+             document.body.removeChild(link);
+             URL.revokeObjectURL(link.href);
+             toastr.success(`截图已保存 (fallback): ${filename}`, '保存成功');
+             return true;
         }
         // --- 选项设置结束 ---
 
 
-        const h2cOptions = { ...defaultOptions, ...options };
-        console.log(`[${pluginName}] html2canvas options for "${filename}":`, h2cOptions, "Element rect:", rect, "Element:", element);
+        const h2cOptions = { ...defaultOptions, ...options }; // 合并基础选项和外部传入的特定选项
+        console.log(`[${pluginName}] html2canvas options for "${filename}":`, h2cOptions, "Element rect:", element.getBoundingClientRect(), "Element:", element);
 
         // 执行截图
         const canvas = await html2canvas(element, h2cOptions);
-        console.log(`[${pluginName}] Canvas created. Size: ${canvas.width}x${canvas.height}`); // 检查实际生成的 canvas 尺寸
+        console.log(`[${pluginName}] Canvas created. Size: ${canvas.width}x${canvas.height}`); 
 
         // --- 裁剪掉可能多余的底部缓冲区 (如果需要) ---
-        // 如果截图成功但底部有空白，可以取消注释这段代码来裁剪
+        // (保持原有裁剪逻辑不变)
         // if (element.id === 'chat' && buffer > 0 && canvas.height > element.scrollHeight * defaultOptions.scale) {
-        //     console.log(`[${pluginName}] Cropping extra buffer from bottom.`);
-        //     const finalCanvas = document.createElement('canvas');
-        //     const finalCtx = finalCanvas.getContext('2d');
-        //     const targetHeight = element.scrollHeight * defaultOptions.scale;
-        //     finalCanvas.width = canvas.width;
-        //     finalCanvas.height = targetHeight;
-        //     finalCtx.drawImage(canvas, 0, 0, canvas.width, targetHeight, 0, 0, canvas.width, targetHeight);
-        //     console.log(`[${pluginName}] Cropped canvas size: ${finalCanvas.width}x${finalCanvas.height}`);
-        //     // 使用 finalCanvas 进行下载
-        //     const dataUrl = finalCanvas.toDataURL('image/png');
-        //     // ... 下载逻辑 ...
-        //     // return true; // 注意这里需要 return
+        //     ...
         // }
-        // --- 缓冲区裁剪结束 ---
 
 
         // --- 下载逻辑 ---
@@ -243,15 +329,23 @@ async function captureAndDownload(element, filename, options = {}) {
             errorMessage = `捕获到意外事件: ${error.type}`;
             console.error(`[${pluginName}] Caught Event details:`, {
                 type: error.type,
-                target: error.target,
-                currentTarget: error.currentTarget,
+                target: error.target, // 可能为 null
+                currentTarget: error.currentTarget, // 可能为 null
                 bubbles: error.bubbles,
                 cancelable: error.cancelable,
+                // @ts-ignore // error 对象可能不存在于所有 Event 类型上
+                error: error.error, // 如果是 ErrorEvent
+                // @ts-ignore
+                message: error.message // 某些自定义事件可能有
             });
             // 如果是错误事件，尝试获取错误消息
+            // @ts-ignore
             if (error.error instanceof Error) {
+                 // @ts-ignore
                  errorMessage += ` - 事件错误消息: ${error.error.message}`;
+            // @ts-ignore
             } else if (typeof error.message === 'string') { // 有些事件可能有 message 属性
+                 // @ts-ignore
                  errorMessage += ` - 事件消息: ${error.message}`;
             }
         } else {
@@ -270,10 +364,10 @@ async function captureAndDownload(element, filename, options = {}) {
         return false;
     } finally {
         // --- 注意：这里的恢复逻辑仅对移动DOM的策略有效 ---
+        // 对于 #chat 的 CSS 恢复，应该在调用方进行 (如注释中所述)
         console.log(`${pluginName}: Screenshot process finished for ${filename}.`);
     }
 }
-
 
 // --- 新增：生成安全的文件名 ---
 function generateSafeFilename(baseName, type, identifier, extension = 'png') {
