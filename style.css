@@ -1,6 +1,5 @@
 /* public/extensions/third-party/star/style.css */
 
-/* Favorites popup styles */
 /* 收藏夹弹窗样式 */
 .favorites-popup-content {
     /* padding: 10px; */ /* 在 index.js 的 <style> 中已定义 (Already defined in <style> in index.js) */
@@ -9,9 +8,7 @@
 }
 
 /* --- 新增：收藏夹弹窗头部样式 (与 index.js 中 <style> 标签内对应) --- */
-/* --- New: Favorites popup header styles (corresponds to <style> tag in index.js) --- */
 /* 这些规则确保标题和按钮（预览、导出）在弹窗顶部良好对齐 */
-/* These rules ensure good alignment of title and buttons (preview, export) at the top of the popup */
 .favorites-header {
     display: flex;
     justify-content: space-between;
@@ -221,7 +218,6 @@
 }
 
 /* 返回预览按钮和新增的截取所有预览按钮的容器样式 */
-/* Styles for the container of the return preview button and the new screenshot all preview button */
 .favorites-preview-controls {
     display: flex;
     justify-content: center; /* 居中对齐按钮 (Center align buttons) */
@@ -232,7 +228,6 @@
 }
 
 /* 确保预览控制区的按钮样式与之前返回按钮的独立样式一致或更好 */
-/* Ensure buttons in preview controls match or improve upon previous standalone return button style */
 .favorites-preview-controls .menu_button {
     width: auto; /* 根据内容调整宽度 (Adjust width based on content) */
     padding: 8px 15px; /* 舒适的内边距 (Comfortable padding) */
@@ -240,7 +235,6 @@
 }
 
 /* 旧的 #favorites-return-button 独立样式可以保留作为备用，但优先使用 .favorites-preview-controls 内的统一样式 */
-/* Old #favorites-return-button standalone styles can be kept as fallback, but prefer unified style within .favorites-preview-controls */
 #favorites-return-button { /* 这是预览模式下的返回按钮 ID (This is the ID of the return button in preview mode) */
     /* display: block; */ /* 由 flex 容器控制 (Controlled by flex container) */
     /* width: fit-content; */
@@ -267,7 +261,6 @@
 }
 
 /* 导出下拉菜单的特定样式 (在 index.js 的 <style> 中也定义了) */
-/* Specific styles for export dropdown menu (also defined in <style> in index.js) */
 .favorites-export-dropdown {
     position: relative;
     display: inline-block;
