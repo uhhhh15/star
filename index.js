@@ -188,83 +188,99 @@ async function captureAndDownload(element, filename, options = {}) {
             defaultOptions.y = rect.top;
             defaultOptions.width = rect.width;
             defaultOptions.height = rect.height;
+// ... (函数开头和 .favorite-item 逻辑不变) ...
         } else if (element.id === 'chat') {
-            // #chat 长截图逻辑
-            console.log(`${pluginName}: Configuring html2canvas for moved #chat.`);
-            // 背景色
-            defaultOptions.backgroundColor = getComputedStyle(element).getPropertyValue('background-color').trim();
-            if (!defaultOptions.backgroundColor || defaultOptions.backgroundColor === 'rgba(0, 0, 0, 0)' || defaultOptions.backgroundColor === 'transparent') {
-                defaultOptions.backgroundColor = getComputedStyle(body).getPropertyValue('--main-bg-color').trim() || '#1e1e1e';
-            }
+            console.log(`${pluginName}: Capturing #chat element (attempting full scroll content - Strategy B: Screenshot body and crop).`);
 
-            // 关键：因为我们把它移到了 body 下并滚动到顶部，
-            // 理论上它的起点就是 (0,0)，只需要指定完整尺寸
-            defaultOptions.width = element.scrollWidth;
-            defaultOptions.height = element.scrollHeight;
-            defaultOptions.x = 0; // 因为移到了左上角
-            defaultOptions.y = 0; // 因为滚动到了顶部
-            defaultOptions.scrollX = 0; // 页面滚动已经处理
-            defaultOptions.scrollY = 0; // 页面滚动已经处理
+            // --- 策略 B ---
+            // 1. 获取 #chat 相对于文档的位置和尺寸
+            const chatRect = element.getBoundingClientRect();
+            const chatScrollTop = element.scrollTop; // 记录 chat 内部滚动状态，虽然可能不需要
+            const chatScrollLeft = element.scrollLeft;
+            const bodyRect = document.body.getBoundingClientRect();
 
-            // 删除 windowWidth/Height
-            delete defaultOptions.windowWidth;
-            delete defaultOptions.windowHeight;
+            // 计算 #chat 在整个文档（包括滚动区域）中的绝对位置和尺寸
+            const absoluteChatTop = chatRect.top + window.pageYOffset;
+            const absoluteChatLeft = chatRect.left + window.pageXOffset;
+            const chatWidth = element.offsetWidth; // 使用 offsetWidth/Height 可能更稳定
+            const chatHeight = element.scrollHeight; // 我们需要完整的高度
+
+            console.log(`Chat Rect:`, chatRect);
+            console.log(`Body Rect:`, bodyRect);
+            console.log(`Window Scroll: Y=${window.pageYOffset}, X=${window.pageXOffset}`);
+            console.log(`Absolute Chat Pos: Top=${absoluteChatTop}, Left=${absoluteChatLeft}`);
+            console.log(`Target Chat Size: Width=${chatWidth}, Height=${chatHeight}`);
+
+
+            // 2. 配置 html2canvas 截取整个 body
+            const bodyOptions = {
+                backgroundColor: getComputedStyle(document.body).getPropertyValue('--main-bg-color').trim() || '#1e1e1e',
+                useCORS: true,
+                scale: window.devicePixelRatio || 1,
+                logging: true,
+                width: document.body.scrollWidth, // 截取整个 body 的滚动宽度
+                height: document.body.scrollHeight, // 截取整个 body 的滚动高度
+                windowWidth: document.body.scrollWidth,
+                windowHeight: document.body.scrollHeight,
+                x: 0, // 从 body 左上角开始
+                y: 0,
+                scrollX: 0, // body 的滚动由 width/height 处理
+                scrollY: 0,
+            };
+
+            console.log(`[${pluginName}] html2canvas options for body screenshot:`, bodyOptions);
+            toastr.info(`正在截取页面并裁剪: ${filename}...`, '请稍候', { timeOut: 7000, extendedTimeOut: 5000 }); // 可能更耗时
+
+            // 3. 截取 body
+            const fullCanvas = await html2canvas(document.body, bodyOptions);
+            console.log(`[${pluginName}] Full body canvas created. Size: ${fullCanvas.width}x${fullCanvas.height}`);
+
+
+            // 4. 创建新的 Canvas 用于裁剪
+            const croppedCanvas = document.createElement('canvas');
+            const ctx = croppedCanvas.getContext('2d');
+            const scale = defaultOptions.scale; // 使用相同的缩放比例
+
+            // 设置裁剪后的 Canvas 尺寸 (需要乘以 scale)
+            croppedCanvas.width = chatWidth * scale;
+            croppedCanvas.height = chatHeight * scale; // 使用 #chat 的 scrollHeight
+
+            console.log(`[${pluginName}] Cropped canvas created. Target Size: ${croppedCanvas.width}x${croppedCanvas.height}`);
+
+            // 5. 计算裁剪区域在完整 Canvas 上的坐标 (需要乘以 scale)
+            // 注意：这里的坐标是相对于 body 左上角的
+            const sourceX = absoluteChatLeft * scale;
+            const sourceY = absoluteChatTop * scale;
+            const sourceWidth = chatWidth * scale;
+            const sourceHeight = chatHeight * scale; // 裁剪高度也应该是 scrollHeight
+
+            console.log(`[${pluginName}] Cropping parameters: sx=${sourceX}, sy=${sourceY}, sWidth=${sourceWidth}, sHeight=${sourceHeight}, dWidth=${croppedCanvas.width}, dHeight=${croppedCanvas.height}`);
+
+            // 6. 将完整 Canvas 的相关部分绘制到裁剪后的 Canvas 上
+            ctx.drawImage(
+                fullCanvas,
+                sourceX, sourceY,           // 源 Canvas 中的裁剪起始坐标 (sx, sy)
+                sourceWidth, sourceHeight,  // 源 Canvas 中的裁剪尺寸 (sWidth, sHeight)
+                0, 0,                       // 目标 Canvas 中的绘制起始坐标 (dx, dy)
+                croppedCanvas.width, croppedCanvas.height // 目标 Canvas 中的绘制尺寸 (dWidth, dHeight)
+            );
+            console.log(`[${pluginName}] Cropping complete.`);
+
+
+            // 7. 使用裁剪后的 Canvas 进行下载
+            const dataUrl = croppedCanvas.toDataURL('image/png');
+            const link = document.createElement('a');
+            link.href = dataUrl;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(link.href);
+            toastr.success(`截图已保存: ${filename}`, '保存成功', { timeOut: 5000 });
+            return true; // 直接返回，因为我们没有修改原始元素
+            // --- 策略 B 结束 ---
         }
-        // --- 选项设置结束 ---
-
-
-        const h2cOptions = { ...defaultOptions, ...options };
-        console.log(`[${pluginName}] html2canvas options for "${filename}":`, h2cOptions, "Element rect (after potential move):", rect, "Element:", element);
-
-        // 执行截图
-        toastr.info(`正在生成截图: ${filename}...`, '请稍候', { timeOut: 5000, extendedTimeOut: 3000 }); // 增加提示时间
-        const canvas = await html2canvas(element, h2cOptions);
-
-        // ... (下载逻辑) ...
-        const dataUrl = canvas.toDataURL('image/png');
-        const link = document.createElement('a');
-        link.href = dataUrl;
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(link.href);
-        toastr.success(`截图已保存: ${filename}`, '保存成功', { timeOut: 5000 });
-        return true;
-
-    } catch (error) {
-        console.error(`${pluginName}: Screenshot failed for ${filename}:`, error);
-        toastr.error(`截图失败: ${error.message || '未知错误'}`, '操作失败');
-        return false;
-    } finally {
-        // --- 恢复 DOM 和样式 (非常重要) ---
-        // --- Restore DOM and styles (Very important) ---
-        if (element.id === 'chat' && chatParent) {
-            console.log(`${pluginName}: Restoring #chat element to its original position.`);
-            // 恢复原始样式
-            element.style.position = originalChatStyles.position;
-            element.style.top = originalChatStyles.top;
-            element.style.left = originalChatStyles.left;
-            element.style.width = originalChatStyles.width;
-            element.style.height = originalChatStyles.height;
-            element.style.zIndex = originalChatStyles.zIndex;
-
-            // 将元素移回原位
-            if (chatNextSibling) {
-                chatParent.insertBefore(element, chatNextSibling);
-            } else {
-                chatParent.appendChild(element);
-            }
-        }
-        // 恢复 body 类
-        if (bodyHadTranslate && !body.classList.contains('translate')) {
-             console.log(`${pluginName}: Restoring original body classes in finally block.`);
-             body.className = originalBodyClasses; // 使用 className 确保完全恢复
-        }
-        console.log(`${pluginName}: Screenshot process finished for ${filename}. DOM and styles restored.`);
-        // --- 清理结束 ---
-    }
-}
+// ... (函数 catch 和 finally 块保持不变，但 finally 中的 DOM 恢复逻辑只对 Strategy with DOM move 有效) ...
 
 // ... (其他代码) ...
 // --- 新增：生成安全的文件名 ---
