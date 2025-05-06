@@ -101,81 +101,121 @@ function loadScript(url) {
     });
 }
 
+/**
+ * --- 新增：截图并下载的辅助函数 ---
+ * --- New: Helper function to capture screenshot and download ---
+ * @param {HTMLElement} element - 要截图的 DOM 元素 (The DOM element to screenshot)
+ * @param {string} filename - 下载文件的名称 (The name for the downloaded file)
+ * @param {object} options - 传递给 html2canvas 的额外选项 (Extra options to pass to html2canvas)
+ * @returns {Promise<boolean>} - 返回截图是否成功 (Returns whether the screenshot was successful)
+ */
 async function captureAndDownload(element, filename, options = {}) {
+    // 检查 html2canvas 是否已加载 (Check if html2canvas is loaded)
     if (!html2canvasLoaded || typeof html2canvas === 'undefined') {
-        toastr.error('截图库 (html2canvas) 未加载或加载失败，无法截图。');
+        toastr.error('截图库 (html2canvas) 未加载或加载失败，无法截图。 (Screenshot library (html2canvas) not loaded or failed to load, cannot take screenshot.)');
         console.error(`${pluginName}: html2canvas is not loaded. Cannot capture screenshot.`);
         return false;
     }
     try {
-        toastr.info(`正在生成截图: ${filename}...`, '请稍候', { timeOut: 3000, extendedTimeOut: 2000 });
+        // 显示加载提示 (Show loading notification)
+        toastr.info(`正在生成截图: ${filename}... (Generating screenshot: ${filename}...)`, '请稍候 (Please wait)', { timeOut: 3000, extendedTimeOut: 2000 });
 
-        const rect = element.getBoundingClientRect(); // 获取元素在视口中的位置和尺寸
+        // 获取元素在视口中的位置和尺寸 (Get element's position and size in viewport)
+        const rect = element.getBoundingClientRect();
 
-        // 基础默认选项
+        // --- 基础默认选项 ---
+        // --- Base default options ---
         let defaultOptions = {
-            backgroundColor: null, // 先设为 null，让 html2canvas 尝试自动处理或由元素自身背景决定
-            useCORS: true,
-            scale: window.devicePixelRatio || 1,
-            logging: true, // 打开日志进行调试
-            // 对于弹窗内的元素，通常不需要设置 scrollX/Y 为 window 的滚动，
-            // 因为我们关心的是元素本身，而不是整个页面的滚动。
-            // scrollX: 0, // -window.pageXOffset,
-            // scrollY: 0, // -window.pageYOffset,
+            backgroundColor: null, // 优先让html2canvas自动检测或使用元素背景 (Prefer auto-detection or element background)
+            useCORS: true,         // 处理可能的跨域图片（如头像）(Handle potential cross-origin images like avatars)
+            scale: window.devicePixelRatio || 1, // 使用设备像素比提高清晰度 (Use device pixel ratio for better clarity)
+            logging: true,         // 打开日志进行调试 (Enable logging for debugging)
+            // 移除默认的 scrollX/Y 和 x/y，根据目标元素类型设置 (Remove default scrollX/Y and x/y, set based on element type)
         };
 
-        // 针对特定元素的选项覆盖
+        // --- 针对特定元素的选项覆盖 ---
+        // --- Option overrides for specific elements ---
         if (element.classList.contains('favorite-item')) {
-            console.log("Capturing a .favorite-item element.");
-            defaultOptions.backgroundColor = getComputedStyle(element).getPropertyValue('background-color').trim() || // 尝试获取元素自身的背景色
-                                          getComputedStyle(document.body).getPropertyValue('--SmartThemeBodyBgDarker').trim() ||
-                                          '#2a2a2e'; // 备用色
-            // 关键：当截取弹窗内的特定元素时，尝试告诉 html2canvas 元素的精确视口位置和尺寸
-            // 同时，windowWidth/Height 可以设置为元素的尺寸，让它聚焦在这个元素上。
+            // --- 截取收藏弹窗中的单个收藏项 (.favorite-item) ---
+            // --- Screenshotting a single favorite item (.favorite-item) in the popup ---
+            console.log(`${pluginName}: Capturing a .favorite-item element.`);
+
+            // 尝试获取元素自身的计算背景色，如果透明则回退 (Try to get element's own computed background color, fallback if transparent)
+            defaultOptions.backgroundColor = getComputedStyle(element).getPropertyValue('background-color').trim();
+            if (!defaultOptions.backgroundColor || defaultOptions.backgroundColor === 'rgba(0, 0, 0, 0)' || defaultOptions.backgroundColor === 'transparent') {
+                 defaultOptions.backgroundColor = getComputedStyle(document.body).getPropertyValue('--SmartThemeBodyBgDarker').trim() || '#2a2a2e'; // 备用色 (Fallback color)
+            }
+
+            // 关键：对于弹窗内元素，明确指定其在视口中的位置和尺寸 (Key: For elements within a popup, specify their viewport position and size)
             defaultOptions.x = rect.left;
             defaultOptions.y = rect.top;
-            defaultOptions.width = rect.width;   // 或者 element.offsetWidth
-            defaultOptions.height = rect.height; // 或者 element.offsetHeight
-            // defaultOptions.windowWidth = rect.width; // 尝试让 canvas 尺寸与元素尺寸一致
-            // defaultOptions.windowHeight = rect.height;
+            defaultOptions.width = rect.width;   // 或者使用 element.offsetWidth (Or use element.offsetWidth)
+            defaultOptions.height = rect.height; // 或者使用 element.offsetHeight (Or use element.offsetHeight)
 
-            // 如果 .fav-preview 内部有滚动，html2canvas 默认会尝试截取其全部内容。
-            // 如果只想截取 .fav-preview 的可视部分，则需要更复杂的处理（比如先截取 .fav-preview 再合成）
-            // 目前先尝试截取整个 .favorite-item
+            // 注释掉 windowWidth/Height，让 canvas 尺寸自动匹配元素尺寸 (Comment out windowWidth/Height, let canvas size match element size)
+            // delete defaultOptions.windowWidth;
+            // delete defaultOptions.windowHeight;
+
         } else if (element.id === 'chat') {
-            console.log("Capturing #chat element.");
-            defaultOptions.backgroundColor = getComputedStyle(element).getPropertyValue('background-color').trim() ||
-                                          getComputedStyle(document.body).getPropertyValue('--main-bg-color').trim() ||
-                                          '#1e1e1e';
-            // 对于 #chat (全预览截图)，我们希望截取其全部滚动内容
+            // --- 截取预览聊天中的整个聊天区域 (#chat) ---
+            // --- Screenshotting the entire chat area (#chat) in preview mode ---
+            console.log(`${pluginName}: Capturing #chat element.`);
+
+            // 尝试获取 #chat 自身的背景色，如果透明则获取 body 背景 (Try to get #chat's own background color, get body background if transparent)
+            defaultOptions.backgroundColor = getComputedStyle(element).getPropertyValue('background-color').trim();
+            if (!defaultOptions.backgroundColor || defaultOptions.backgroundColor === 'rgba(0, 0, 0, 0)' || defaultOptions.backgroundColor === 'transparent') {
+                defaultOptions.backgroundColor = getComputedStyle(document.body).getPropertyValue('--main-bg-color').trim() || '#1e1e1e'; // 主题变量或备用色 (Theme variable or fallback color)
+            }
+
+            // 核心：截取整个可滚动内容区域 (Core: Screenshot the entire scrollable content area)
+            // 明确告诉 html2canvas 画布尺寸等于元素的滚动尺寸 (Explicitly tell html2canvas the canvas size equals element's scroll dimensions)
             defaultOptions.width = element.scrollWidth;
             defaultOptions.height = element.scrollHeight;
-            // 当截取整个可滚动元素时，x, y 通常设为 0 或不设，scrollX/Y 也不需要设为 window 的
-            // html2canvas 会从元素的 (0,0) 点开始绘制其 scrollWidth/scrollHeight
-            // defaultOptions.x = 0; // 相对于元素自身
-            // defaultOptions.y = 0; // 相对于元素自身
+
+            // 对于全元素滚动截图，通常不需要设置 x, y (For full element scroll screenshots, x, y are usually not needed)
+            // 但如果页面本身滚动影响了元素位置，可能需要以下补偿 (But if page scroll affects element position, compensation might be needed)
+            // defaultOptions.scrollX = -window.pageXOffset; // 补偿页面水平滚动 (Compensate for page horizontal scroll)
+            // defaultOptions.scrollY = -window.pageYOffset; // 补偿页面垂直滚动 (Compensate for page vertical scroll)
+
+            // 备选方案：设置 windowWidth/Height (Alternative: Set windowWidth/Height)
+            // defaultOptions.windowWidth = element.scrollWidth;
+            // defaultOptions.windowHeight = element.scrollHeight;
+            // delete defaultOptions.width; // 让 html2canvas 根据 windowHeight/Width 推断 (Let html2canvas infer from windowHeight/Width)
+            // delete defaultOptions.height;
         }
+        // --- 选项覆盖结束 ---
+        // --- End of option overrides ---
 
-
+        // 合并默认选项和传入的特定选项 (Merge default options and specific passed options)
         const h2cOptions = { ...defaultOptions, ...options };
         console.log(`[${pluginName}] html2canvas options for "${filename}":`, h2cOptions, "Element rect:", rect, "Element:", element);
 
-        // 在截图前确保元素是可见的且没有奇怪的 transform
-        // 有时父级 dialog 的 transform 会影响截图
+        // --- (可选/调试用) 尝试处理 dialog 的 transform ---
+        // --- (Optional/Debugging) Attempt to handle dialog's transform ---
         const dialog = element.closest('dialog.popup');
-        let originalDialogTransform = '';
-        if (dialog) {
-            originalDialogTransform = dialog.style.transform;
-            // dialog.style.transform = 'none'; // 尝试临时移除 transform
-            // await new Promise(resolve => requestAnimationFrame(resolve)); // 等待一帧
-        }
+        let originalDialogTransform = ''; // 必须在 try 外部声明 (Must be declared outside try)
+        // if (dialog) {
+        //     originalDialogTransform = dialog.style.transform;
+        //     dialog.style.transform = 'none'; // 尝试临时移除 transform (Try temporarily removing transform)
+        //     await new Promise(resolve => requestAnimationFrame(resolve)); // 等待一帧应用样式 (Wait a frame for style application)
+        // }
+        // --- transform 处理结束 ---
+        // --- End of transform handling ---
 
+        // 执行截图 (Execute screenshot)
         const canvas = await html2canvas(element, h2cOptions);
 
-        if (dialog) {
-            // dialog.style.transform = originalDialogTransform; // 恢复 transform
-        }
+        // --- (可选/调试用) 恢复 dialog 的 transform ---
+        // --- (Optional/Debugging) Restore dialog's transform ---
+        // if (dialog) {
+        //     dialog.style.transform = originalDialogTransform; // 恢复 transform (Restore transform)
+        // }
+        // --- transform 恢复结束 ---
+        // --- End of transform restoration ---
 
+
+        // --- 下载逻辑 ---
+        // --- Download logic ---
         const dataUrl = canvas.toDataURL('image/png');
         const link = document.createElement('a');
         link.href = dataUrl;
@@ -183,19 +223,25 @@ async function captureAndDownload(element, filename, options = {}) {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        URL.revokeObjectURL(link.href);
-        toastr.success(`截图已保存: ${filename}`, '保存成功', { timeOut: 5000 });
-        return true;
+        URL.revokeObjectURL(link.href); // 释放对象 URL 内存 (Release object URL memory)
+
+        // 显示成功提示 (Show success notification)
+        toastr.success(`截图已保存: ${filename} (Screenshot saved: ${filename})`, '保存成功 (Save successful)', { timeOut: 5000 });
+        return true; // 返回成功状态 (Return success status)
+
     } catch (error) {
+        // 处理错误 (Handle errors)
         console.error(`${pluginName}: Screenshot failed for ${filename}:`, error);
-        toastr.error(`截图失败: ${error.message || '未知错误'}`, '操作失败');
-        return false;
+        toastr.error(`截图失败: ${error.message || '未知错误'} (Screenshot failed: ${error.message || 'Unknown error'})`, '操作失败 (Operation failed)');
+        return false; // 返回失败状态 (Return failure status)
     } finally {
-        // 确保在 finally 块中恢复可能修改的样式，即使截图失败
-        const dialog = element.closest('dialog.popup');
-        if (dialog && typeof originalDialogTransform !== 'undefined' && dialog.style.transform !== originalDialogTransform) {
-            // dialog.style.transform = originalDialogTransform;
-        }
+        // --- (可选/调试用) 确保在 finally 块中恢复可能修改的样式 ---
+        // --- (Optional/Debugging) Ensure potentially modified styles are restored in finally block ---
+        // if (dialog && typeof originalDialogTransform !== 'undefined' && dialog.style.transform !== originalDialogTransform) {
+        //     dialog.style.transform = originalDialogTransform;
+        // }
+        // --- 清理结束 ---
+        // --- End of cleanup ---
     }
 }
 // --- 新增：生成安全的文件名 ---
