@@ -131,9 +131,9 @@ async function captureAndDownload(element, filename, options = {}) {
             defaultOptions.width = rect.width;
             defaultOptions.height = rect.height;
 
+// ... (函数开头和 .favorite-item 逻辑不变) ...
         } else if (element.id === 'chat') {
-            // --- 截取 #chat (长截图) ---
-            console.log(`${pluginName}: Capturing #chat element (attempting full scroll content).`);
+            console.log(`${pluginName}: Capturing #chat element (attempting full scroll content - Strategy 2.1: Explicit size + Page scroll compensation).`);
 
             // 背景色处理 (Background color handling)
             defaultOptions.backgroundColor = getComputedStyle(element).getPropertyValue('background-color').trim();
@@ -141,27 +141,31 @@ async function captureAndDownload(element, filename, options = {}) {
                 defaultOptions.backgroundColor = getComputedStyle(document.body).getPropertyValue('--main-bg-color').trim() || '#1e1e1e';
             }
 
-            // --- 策略一：设置 windowHeight/Width 为滚动尺寸 ---
-            // --- Strategy 1: Set windowHeight/Width to scroll dimensions ---
-            defaultOptions.windowWidth = element.scrollWidth;
-            defaultOptions.windowHeight = element.scrollHeight;
+            // --- 策略 2.1：明确设置 width/height，并补偿页面滚动 ---
+            // --- Strategy 2.1: Explicitly set width/height, and compensate for page scroll ---
+            defaultOptions.width = element.scrollWidth;
+            defaultOptions.height = element.scrollHeight;
 
-            // 当使用 windowHeight/Width 时，通常不需要再明确设置 width/height，
-            // html2canvas 会根据 window 尺寸来渲染。可以注释掉或删除它们。
-            // defaultOptions.width = element.scrollWidth;
-            // defaultOptions.height = element.scrollHeight;
+            // 补偿页面滚动：告诉 html2canvas 页面已经滚动了多少
+            // Compensate for page scroll: Tell html2canvas how much the page has scrolled
+            defaultOptions.scrollX = window.pageXOffset; // 或 -window.pageXOffset，需要测试
+            defaultOptions.scrollY = window.pageYOffset; // 或 -window.pageYOffset，需要测试
+                                                    // *** 从 0 开始，或者从负值开始补偿，是 html2canvas 有点模糊的地方，需要试验 ***
+                                                    // *** Starting from 0 or compensating with negative values is a bit ambiguous in html2canvas, needs testing ***
+                                                    // ** 先尝试正值 (Try positive values first) **
 
-            // 页面滚动补偿，如果 #chat 的位置受页面滚动影响，则可能需要取消注释
-            // Page scroll compensation, uncomment if #chat's position is affected by page scroll
-            // defaultOptions.scrollX = -window.pageXOffset;
-            // defaultOptions.scrollY = -window.pageYOffset;
+            // x, y 通常可以设为 0，因为 scrollX/Y 应该已经处理了视口偏移
+            // x, y can usually be 0, as scrollX/Y should handle viewport offset
+            defaultOptions.x = 0;
+            defaultOptions.y = 0;
 
-            // 通常不需要设置 x, y，因为我们希望从元素的(0,0)开始截取其全部内容
-            // Usually no need to set x, y as we want to capture from element's (0,0)
-            // defaultOptions.x = 0;
-            // defaultOptions.y = 0;
-            // --- 策略一结束 ---
+            // 确保不使用 windowHeight/Width
+            // Make sure not to use windowHeight/Width
+            delete defaultOptions.windowWidth;
+            delete defaultOptions.windowHeight;
+            // --- 策略 2.1 结束 ---
         }
+// ... (函数剩余部分不变) ...
 
         const h2cOptions = { ...defaultOptions, ...options };
         console.log(`[${pluginName}] html2canvas options for "${filename}":`, h2cOptions, "Element rect:", rect, "Element:", element);
