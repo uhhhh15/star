@@ -133,7 +133,7 @@ async function captureAndDownload(element, filename, options = {}) {
 
 // ... (函数开头和 .favorite-item 逻辑不变) ...
         } else if (element.id === 'chat') {
-            console.log(`${pluginName}: Capturing #chat element (attempting full scroll content - Strategy 2.1: Explicit size + Page scroll compensation).`);
+            console.log(`${pluginName}: Capturing #chat element (attempting full scroll content - Strategy 2.2: Explicit size + Rect + Page scroll compensation).`);
 
             // 背景色处理 (Background color handling)
             defaultOptions.backgroundColor = getComputedStyle(element).getPropertyValue('background-color').trim();
@@ -141,29 +141,26 @@ async function captureAndDownload(element, filename, options = {}) {
                 defaultOptions.backgroundColor = getComputedStyle(document.body).getPropertyValue('--main-bg-color').trim() || '#1e1e1e';
             }
 
-            // --- 策略 2.1：明确设置 width/height，并补偿页面滚动 ---
-            // --- Strategy 2.1: Explicitly set width/height, and compensate for page scroll ---
+            // --- 策略 2.2：明确设置 width/height，使用 rect 定位，并补偿页面滚动 ---
+            // --- Strategy 2.2: Explicitly set width/height, use rect for positioning, and compensate for page scroll ---
             defaultOptions.width = element.scrollWidth;
             defaultOptions.height = element.scrollHeight;
 
-            // 补偿页面滚动：告诉 html2canvas 页面已经滚动了多少
-            // Compensate for page scroll: Tell html2canvas how much the page has scrolled
-            defaultOptions.scrollX = window.pageXOffset; // 或 -window.pageXOffset，需要测试
-            defaultOptions.scrollY = window.pageYOffset; // 或 -window.pageYOffset，需要测试
-                                                    // *** 从 0 开始，或者从负值开始补偿，是 html2canvas 有点模糊的地方，需要试验 ***
-                                                    // *** Starting from 0 or compensating with negative values is a bit ambiguous in html2canvas, needs testing ***
+            // 使用元素在视口的位置
+            // Use element's position in the viewport
+            defaultOptions.x = rect.left;
+            defaultOptions.y = rect.top;
+
+            // 补偿页面滚动
+            // Compensate for page scroll
+            defaultOptions.scrollX = window.pageXOffset; // 或 -window.pageXOffset
+            defaultOptions.scrollY = window.pageYOffset; // 或 -window.pageYOffset
                                                     // ** 先尝试正值 (Try positive values first) **
 
-            // x, y 通常可以设为 0，因为 scrollX/Y 应该已经处理了视口偏移
-            // x, y can usually be 0, as scrollX/Y should handle viewport offset
-            defaultOptions.x = 0;
-            defaultOptions.y = 0;
-
             // 确保不使用 windowHeight/Width
-            // Make sure not to use windowHeight/Width
             delete defaultOptions.windowWidth;
             delete defaultOptions.windowHeight;
-            // --- 策略 2.1 结束 ---
+            // --- 策略 2.2 结束 ---
         }
 // ... (函数剩余部分不变) ...
 
