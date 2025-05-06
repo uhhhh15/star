@@ -281,31 +281,66 @@ async function captureAndDownload(element, filename, options = {}) {
             throw new Error('Unsupported element type for captureAndDownload');
         }
 
+// index.js
+
+// ... (函数 captureAndDownload 的 try 块保持不变) ...
+
     } catch (error) {
-        // 统一错误处理
-        console.error(`${pluginName}: Screenshot failed for ${filename}:`, error);
-        // 显示更具体的错误（如果可能）
-        let errorMessage = error instanceof Error ? error.message : String(error);
-        if (errorMessage.includes('Maximum call stack size exceeded')) {
-            errorMessage = '页面过于复杂或内容过多，截图失败 (Maximum call stack size exceeded)';
-        } else if (errorMessage.includes('SecurityError') && errorMessage.includes('tainted')) {
-            errorMessage = '页面包含跨域内容，无法安全截图 (Tainted canvas)';
-        } else if (errorMessage.includes('IndexSizeError') || errorMessage.includes('dimensions')) {
-             errorMessage = '计算截图尺寸或坐标时出错 (Invalid dimensions/coordinates)';
+        // --- 修改后的 Catch 块 ---
+        console.error(`${pluginName}: Screenshot failed for ${filename}:`, error); // 打印原始错误对象
+
+        let errorMessage = '未知错误 (Unknown error)';
+        let errorType = 'Unknown';
+
+        if (error instanceof Error) {
+            errorMessage = error.message;
+            errorType = error.name;
+            // 尝试识别常见错误类型
+            if (errorMessage.includes('Maximum call stack size exceeded')) {
+                errorMessage = '页面过于复杂或内容过多，截图失败 (Maximum call stack size exceeded)';
+            } else if (errorMessage.includes('SecurityError') && errorMessage.includes('tainted')) {
+                errorMessage = '页面包含跨域内容，无法安全截图 (Tainted canvas)';
+            } else if (errorMessage.includes('IndexSizeError') || errorMessage.includes('dimensions')) {
+                 errorMessage = '计算截图尺寸或坐标时出错 (Invalid dimensions/coordinates)';
+            }
+        } else if (error instanceof Event) {
+            // 如果捕获到的是 Event 对象
+            errorType = 'Event';
+            errorMessage = `捕获到意外事件 (Caught unexpected event): ${error.type}`;
+            console.error(`[${pluginName}] Caught Event details:`, {
+                type: error.type,
+                target: error.target,
+                currentTarget: error.currentTarget,
+                bubbles: error.bubbles,
+                cancelable: error.cancelable,
+                // 可以尝试打印更多属性，但要小心循环引用
+            });
+            // 如果是错误事件，尝试获取错误消息
+            if (error.error instanceof Error) {
+                 errorMessage += ` - Event Error Message: ${error.error.message}`;
+            } else if (typeof error.message === 'string') { // 有些事件可能有 message 属性
+                 errorMessage += ` - Event Message: ${error.message}`;
+            }
+        } else {
+            // 其他未知类型的错误
+            try {
+                errorMessage = String(error); // 尝试转换为字符串
+                errorType = typeof error;
+            } catch (e) {
+                errorMessage = '无法识别的错误对象 (Unidentifiable error object)';
+            }
         }
-        toastr.error(`截图失败: ${errorMessage || '未知错误'}`, '操作失败');
+
+        console.error(`[${pluginName}] Identified Error Type: ${errorType}, Message: ${errorMessage}`);
+        toastr.error(`截图失败: ${errorMessage}`, '操作失败 (Operation failed)');
+        // --- Catch 块修改结束 ---
+
         return false;
     } finally {
-        // --- 恢复 DOM 和样式的逻辑（仅在需要时） ---
-        console.log(`${pluginName}: Screenshot process finished for ${filename}.`);
+        // ... (finally 块不变) ...
     }
 }
 
-// ... (其他代码) ...
-
-
-// ... (其他函数，如 generateSafeFilename, setupPreviewUI, jQuery ready 等) ...
-// ... (函数 catch 和 finally 块保持不变，但 finally 中的 DOM 恢复逻辑只对 Strategy with DOM move 有效) ...
 // ... (其他代码) ...
 // --- 新增：生成安全的文件名 ---
 // --- New: Generate safe filename ---
