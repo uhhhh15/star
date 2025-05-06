@@ -145,6 +145,12 @@
     color: var(--SmartThemeLinkColor, #3a87ff); /* 主题链接色或默认蓝色 */
 }
 
+/* --- 新增：单条收藏截图图标样式 --- */
+.fav-actions .fa-camera { /* 截图图标 */
+    color: var(--SmartThemeInfoColor, #17a2b8); /* 主题信息色或默认青色，可按需调整 */
+}
+/* --- 截图图标样式结束 --- */
+
 .fa-trash { /* 删除图标 */
     color: var(--SmartThemeDangerColor, #ff3a3a); /* 主题危险色或默认红色 */
 }
@@ -226,6 +232,27 @@
     color: var(--SmartThemeBtnFgHover);
     border-color: var(--SmartThemeBtnBorderHover);
 }
+
+/* --- 新增：预览界面截图按钮样式 (与 index.js 中 <style> 标签内对应) --- */
+#favorites-preview-screenshot-button {
+    display: block;
+    width: fit-content;
+    margin: 10px auto 15px auto; /* 调整 margin 使其与返回按钮有一定间距 */
+    padding: 8px 15px;
+    background-color: var(--SmartThemeBtnBg);
+    color: var(--SmartThemeBtnFg);
+    border: 1px solid var(--SmartThemeBtnBorder);
+    border-radius: 5px;
+    cursor: pointer;
+    text-align: center;
+}
+#favorites-preview-screenshot-button:hover {
+    background-color: var(--SmartThemeBtnBgHover);
+    color: var(--SmartThemeBtnFgHover);
+    border-color: var(--SmartThemeBtnBorderHover);
+}
+/* --- 预览截图按钮样式结束 --- */
+
 
 /* 确保弹窗内的按钮样式一致 */
 .favorites-popup-content .menu_button { /* 应用于弹窗内的所有 menu_button */
