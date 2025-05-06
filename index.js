@@ -281,7 +281,6 @@ async function captureAndDownload(element, filename, options = {}) {
             // --- 策略 B 结束 ---
         }
 // ... (函数 catch 和 finally 块保持不变，但 finally 中的 DOM 恢复逻辑只对 Strategy with DOM move 有效) ...
-
 // ... (其他代码) ...
 // --- 新增：生成安全的文件名 ---
 // --- New: Generate safe filename ---
