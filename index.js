@@ -133,7 +133,7 @@ async function captureAndDownload(element, filename, options = {}) {
 
 // ... (函数开头和 .favorite-item 逻辑不变) ...
         } else if (element.id === 'chat') {
-            console.log(`${pluginName}: Capturing #chat element (attempting full scroll content - Strategy 2.2: Explicit size + Rect + Page scroll compensation).`);
+            console.log(`${pluginName}: Capturing #chat element (attempting full scroll content - Strategy 2.3: Explicit size only).`);
 
             // 背景色处理 (Background color handling)
             defaultOptions.backgroundColor = getComputedStyle(element).getPropertyValue('background-color').trim();
@@ -141,26 +141,22 @@ async function captureAndDownload(element, filename, options = {}) {
                 defaultOptions.backgroundColor = getComputedStyle(document.body).getPropertyValue('--main-bg-color').trim() || '#1e1e1e';
             }
 
-            // --- 策略 2.2：明确设置 width/height，使用 rect 定位，并补偿页面滚动 ---
-            // --- Strategy 2.2: Explicitly set width/height, use rect for positioning, and compensate for page scroll ---
+            // --- 策略 2.3：只明确设置 width/height ---
+            // --- Strategy 2.3: Explicitly set width/height only ---
             defaultOptions.width = element.scrollWidth;
             defaultOptions.height = element.scrollHeight;
 
-            // 使用元素在视口的位置
-            // Use element's position in the viewport
-            defaultOptions.x = rect.left;
-            defaultOptions.y = rect.top;
-
-            // 补偿页面滚动
-            // Compensate for page scroll
-            defaultOptions.scrollX = window.pageXOffset; // 或 -window.pageXOffset
-            defaultOptions.scrollY = window.pageYOffset; // 或 -window.pageYOffset
-                                                    // ** 先尝试正值 (Try positive values first) **
+            // 不设置 x, y, scrollX, scrollY
+            // Do not set x, y, scrollX, scrollY
+            delete defaultOptions.x;
+            delete defaultOptions.y;
+            delete defaultOptions.scrollX;
+            delete defaultOptions.scrollY;
 
             // 确保不使用 windowHeight/Width
             delete defaultOptions.windowWidth;
             delete defaultOptions.windowHeight;
-            // --- 策略 2.2 结束 ---
+            // --- 策略 2.3 结束 ---
         }
 // ... (函数剩余部分不变) ...
 
