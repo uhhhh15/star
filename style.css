@@ -1,11 +1,13 @@
-/* style.css (Combined Light & Dark Theme - Final Version) */
+/* style.css (Combined Light & Dark Theme - Final & Patched Version) */
 /* Light theme is default. Dark theme is activated by adding a '.dark-theme' class to '.favorites-modal-dialog' and '.context-messages-container'. */
 
-/* --- Hide all scrollbars --- */
-::-webkit-scrollbar {
+/* --- Hide scrollbars ONLY within the plugin's components --- */
+#favoritesModal ::-webkit-scrollbar,
+#context-messages-frame ::-webkit-scrollbar {
     display: none !important;
 }
-* {
+#favoritesModal *,
+#context-messages-frame * {
     -ms-overflow-style: none !important;
     scrollbar-width: none !important;
 }
@@ -160,10 +162,23 @@
 .favorite-item.role-user .fav-note-content { color: rgba(41, 182, 246, 0.35) !important; }
 
 
-/* Code block styles (LIGHT) */
-.context-message-text pre, .fav-preview pre { color: rgba(58, 58, 58, 1) !important; background: rgba(0, 0, 0, 0.05) !important; border: none !important; padding: 10px !important; margin: 5px 0 !important; font-family: monospace !important; white-space: pre-wrap !important; overflow-x: auto !important; word-break: break-all; display: block !important; width: 100% !important; box-sizing: border-box !important; border-radius: 4px !important; }
-.fav-preview blockquote, .fav-preview q, .context-message-text blockquote, .context-message-text q { color: var(--SmartThemeQuoteColor) !important; }
-q, q::before, q::after { content: none !important; quotes: none !important; margin: 0 !important; padding: 0 !important; }
+/* Code block styles (LIGHT) - Scoped to prevent pollution */
+#favoritesModal .context-message-text pre, #favoritesModal .fav-preview pre,
+#context-messages-frame .context-message-text pre, #context-messages-frame .fav-preview pre {
+    color: rgba(58, 58, 58, 1) !important; background: rgba(0, 0, 0, 0.05) !important; border: none !important; padding: 10px !important; margin: 5px 0 !important; font-family: monospace !important; white-space: pre-wrap !important; overflow-x: auto !important; word-break: break-all; display: block !important; width: 100% !important; box-sizing: border-box !important; border-radius: 4px !important;
+}
+/* Quote styles - Scoped to prevent pollution */
+#favoritesModal .fav-preview blockquote, #favoritesModal .fav-preview q, 
+#favoritesModal .context-message-text blockquote, #favoritesModal .context-message-text q,
+#context-messages-frame .fav-preview blockquote, #context-messages-frame .fav-preview q, 
+#context-messages-frame .context-message-text blockquote, #context-messages-frame .context-message-text q { 
+    color: var(--SmartThemeQuoteColor) !important; 
+}
+/* Q tag reset - Scoped to prevent pollution */
+#favoritesModal q, #favoritesModal q::before, #favoritesModal q::after,
+#context-messages-frame q, #context-messages-frame q::before, #context-messages-frame q::after { 
+    content: none !important; quotes: none !important; margin: 0 !important; padding: 0 !important; 
+}
 
 /* --- Action Buttons (LIGHT) --- */
 .fav-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 !important; margin: 0 !important; margin-top: auto; flex-wrap: wrap; }
@@ -226,15 +241,68 @@ q, q::before, q::after { content: none !important; quotes: none !important; marg
 }
 
 /* --- Preview Mode UI Styles (LIGHT) --- */
-#favorites-preview-toggle { display: none; position: fixed; top: 0; bottom: 0; margin-top: 350px; margin-bottom: auto; right: 20px; z-index: 10002; width: 48px; height: 48px; background-color: rgba(255, 255, 255, 0.9) !important; color: #333 !important; border: 1px solid rgba(0, 0, 0, 0.1) !important; border-radius: 50%; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); cursor: pointer; align-items: center; justify-content: center; font-size: 20px; transition: transform 0.2s ease, box-shadow 0.2s ease; }
-#favorites-preview-toggle:hover { transform: scale(1.1); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2); }
-#favorites-preview-toggle:active { transform: scale(1.05); }
-#favorites-preview-exit-button { display: none; position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10002; padding: 10px 20px !important; font-size: 1em !important; background-color: #c0392b !important; color: white !important; border: none !important; border-radius: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.25); width: auto; }
-#favorites-preview-exit-button:hover { background-color: #e74c3c !important; }
+#favorites-preview-toggle:hover { 
+    transform: translateY(-50%) scale(1.1); /* Combine transforms */
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2); 
+}
+#favorites-preview-toggle:active { 
+    transform: translateY(-50%) scale(1.05); /* Combine transforms */
+}
 
-/* Final cleanup for all themes */
-div.fav-preview code, .context-message-text code,
-.favorites-modal-dialog code, .context-messages-frame code {
+#favorites-preview-toggle { display: none; position: fixed; top: 0; bottom: 0; margin-top: 350px; margin-bottom: auto; right: 20px; z-index: 10002; width: 48px; height: 48px; background-color: rgba(255, 255, 255, 0.9) !important; color: #333 !important; border: 1px solid rgba(0, 0, 0, 0.1) !important; border-radius: 50%; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); cursor: pointer; align-items: center; justify-content: center; font-size: 20px; transition: transform 0.2s ease, box-shadow 0.2s ease; }
+
+
+
+/* --- Preview Mode UI Styles (Managed by parent class) --- */
+
+
+/* 2. 定义退出预览按钮 (底部红色按钮) 的外观 */
+#favorites-preview-exit-button {
+    z-index: 10002;
+    padding: 12px 20px !important;
+    font-size: 1em !important;
+    background-color: #c0392b !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    width: auto;
+    max-width: 300px;
+    margin: 0 auto; /* 在 flex 容器中水平居中 */
+    flex-shrink: 0;
+}
+#favorites-preview-exit-button:hover {
+    background-color: #e74c3c !important;
+}
+
+/* 3. 使用状态类控制底部区域的显隐 */
+/* 默认状态 (非预览): 隐藏退出按钮，显示输入框 */
+#form_sheld > #favorites-preview-exit-button {
+    display: none;
+}
+#form_sheld > #send_form {
+    display: flex;
+}
+
+/* 预览激活状态: 显示退出按钮，隐藏输入框 */
+#form_sheld.star-preview-active {
+    display: flex !important;
+    justify-content: center;
+    align-items: center;
+}
+#form_sheld.star-preview-active > #send_form {
+    display: none !important;
+}
+#form_sheld.star-preview-active > #favorites-preview-exit-button {
+    display: block;
+}
+
+
+/* Final cleanup for all themes - Scoped to prevent pollution */
+#favoritesModal div.fav-preview code, #favoritesModal .context-message-text code,
+#favoritesModal .favorites-modal-dialog code,
+#context-messages-frame div.fav-preview code, #context-messages-frame .context-message-text code,
+#context-messages-frame code {
     background: none !important;
     border: none !important;
     padding: 0 !important;
@@ -339,8 +407,9 @@ div.fav-preview code, .context-message-text code,
     color: rgba(41, 182, 246, 0.65) !important;
 }
 
-/* Code block styles (DARK) */
-.dark-theme .context-message-text pre, .dark-theme .fav-preview pre {
+/* Code block styles (DARK) - Scoped to prevent pollution */
+.dark-theme #favoritesModal .context-message-text pre, .dark-theme #favoritesModal .fav-preview pre,
+.dark-theme #context-messages-frame .context-message-text pre, .dark-theme #context-messages-frame .fav-preview pre {
     color: #e0e0e0 !important;
     background: rgba(255, 255, 255, 0.08) !important;
 }
@@ -398,8 +467,8 @@ body:has(.dark-theme#favorites-preview-toggle) #favorites-preview-toggle,
 }
 
 /* --- FIX: Disable global styles for inputs inside plugin content --- */
-.fav-preview input[type="text"], .fav-preview input[type="number"], .fav-preview input:not([type]), .fav-preview textarea:not([type="search"]),
-.context-message-text input[type="text"], .context-message-text input[type="number"], .context-message-text input:not([type]), .context-message-text textarea:not([type="search"]) {
+#favoritesModal .fav-preview input[type="text"], #favoritesModal .fav-preview input[type="number"], #favoritesModal .fav-preview input:not([type]), #favoritesModal .fav-preview textarea:not([type="search"]),
+#context-messages-frame .context-message-text input[type="text"], #context-messages-frame .context-message-text input[type="number"], #context-messages-frame .context-message-text input:not([type]), #context-messages-frame .context-message-text textarea:not([type="search"]) {
     all: revert !important;
     color: inherit !important;
     background-color: transparent !important;
