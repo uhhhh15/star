@@ -5,7 +5,7 @@
 //                      UPDATE CHECKER CONSTANTS & STATE
 // =================================================================
 const GITHUB_REPO = 'uhhhh15/star';
-const LOCAL_VERSION = '2.0.2';
+const LOCAL_VERSION = '2.0.3';
 const REMOTE_CHANGELOG_PATH = 'CHANGELOG.md';
 const REMOTE_MANIFEST_PATH = 'manifest.json';
 const REMOTE_UPDATE_NOTICE_PATH = 'update.html';
@@ -567,40 +567,54 @@ function ensureModalStructure() {
     // --- Event Listeners ---
     modalElement.querySelector(`.${MODAL_CLOSE_X_CLASS}`).addEventListener('click', closeFavoritesModal);
 
-    // --- MODIFIED: Sidebar Toggle & Long-press Options Menu (with Touch Support) ---
-    const avatarToggle = modalElement.querySelector(`.${SIDEBAR_TOGGLE_CLASS}`);
-    let longPressTimer;
-    let isLongPressAction = false;
+	// --- MODIFIED: Sidebar Toggle & Long-press Options Menu (with Touch Support) ---
+	const avatarToggle = modalElement.querySelector(`.${SIDEBAR_TOGGLE_CLASS}`);
+	let longPressTimer;
+	let isLongPressAction = false;
 
-    const startPress = (e) => {
-        isLongPressAction = false;
-        longPressTimer = setTimeout(() => {
-            isLongPressAction = true;
-            showAvatarLongPressMenu();
-        }, 600); // 600ms for long press
-    };
+	// 启动长按计时器 (不阻止默认事件)
+	const startPress = (e) => {
+		isLongPressAction = false;
+		longPressTimer = setTimeout(() => {
+			isLongPressAction = true; // 标记为长按已触发
+			showAvatarLongPressMenu();
+		}, 600); // 600ms for long press
+	};
 
-    const endPress = () => {
-        clearTimeout(longPressTimer);
-    };
+	// 清除长按计时器
+	const endPress = () => {
+		clearTimeout(longPressTimer);
+	};
 
-    // Bind events for both mouse and touch
-    avatarToggle.addEventListener('mousedown', startPress);
-    avatarToggle.addEventListener('touchstart', startPress, { passive: true });
+	// 1. 绑定启动事件 (鼠标按下 或 手指触摸)
+	avatarToggle.addEventListener('mousedown', startPress);
+	avatarToggle.addEventListener('touchstart', startPress);
 
-    avatarToggle.addEventListener('mouseup', endPress);
-    avatarToggle.addEventListener('mouseleave', endPress);
-    avatarToggle.addEventListener('touchend', endPress);
-    avatarToggle.addEventListener('touchcancel', endPress);
+	// 2. 绑定结束/取消事件 (鼠标抬起、移开 或 手指离开、取消)
+	avatarToggle.addEventListener('mouseup', endPress);
+	avatarToggle.addEventListener('mouseleave', endPress);
+	avatarToggle.addEventListener('touchend', endPress);
+	avatarToggle.addEventListener('touchcancel', endPress);
 
-    avatarToggle.addEventListener('click', (e) => {
-        if (isLongPressAction) {
-            e.preventDefault();
-            e.stopPropagation();
-            return; // Prevent sidebar toggle if it was a long press
-        }
-        modalDialogElement.classList.toggle('sidebar-closed');
-    });
+	// 3. 绑定单击事件，并在这里做最终判断
+	avatarToggle.addEventListener('click', (e) => {
+		// 如果是长按动作触发的，则阻止单击行为
+		if (isLongPressAction) {
+			e.preventDefault();
+			e.stopPropagation();
+			return; 
+		}
+		// 否则，执行单击行为：切换侧边栏
+		modalDialogElement.classList.toggle('sidebar-closed');
+	});
+	// 2. 为“长按”或“右键单击”设置监听器 (用于弹出选项菜单)
+	avatarToggle.addEventListener('contextmenu', (e) => {
+		// 阻止浏览器的默认上下文菜单 (如 "保存图片...")
+		e.preventDefault(); 
+		
+		// 显示我们自定义的选项菜单
+		showAvatarLongPressMenu();
+	});
 
     const searchContainer = modalElement.querySelector(`.${SEARCH_CONTAINER_CLASS}`);
     const searchIcon = modalElement.querySelector(`.${SEARCH_ICON_CLASS}`);
@@ -2088,23 +2102,32 @@ jQuery(async () => {
 
         let longPressTimeout;
         let isLongPress = false;
-        $(document)
-            .on('mousedown', '.favorite-toggle-icon', (event) => {
-                isLongPress = false;
-                longPressTimeout = setTimeout(() => {
-                    isLongPress = true;
-                    event.preventDefault();
-                    handleEditNoteFromChat(event.currentTarget);
-                }, 600);
-            })
-            .on('mouseup mouseleave touchend', '.favorite-toggle-icon', () => {
-                clearTimeout(longPressTimeout);
-            })
-            .on('click', '.favorite-toggle-icon', (event) => {
-                if (!isLongPress) {
-                    handleFavoriteToggle(event);
-                }
-            });
+		$(document)
+			.on('mousedown touchstart', '.favorite-toggle-icon', function(event) { // <-- 同时监听 mousedown 和 touchstart
+				// 阻止默认行为，如在触摸时滚动页面
+				// 注意：在jQuery的事件委托中，event.originalEvent 用于访问原生事件
+				if (event.type === 'touchstart') {
+					event.preventDefault();
+				}
+				
+				const self = this; // 保存当前元素引用
+				isLongPress = false;
+				longPressTimeout = setTimeout(() => {
+					isLongPress = true;
+					handleEditNoteFromChat(self); // 使用保存的引用
+				}, 600);
+			})
+			.on('mouseup mouseleave touchend touchcancel', '.favorite-toggle-icon', () => { // <-- 增加 touchcancel
+				clearTimeout(longPressTimeout);
+			})
+			.on('click', '.favorite-toggle-icon', (event) => {
+				if (isLongPress) {
+					event.preventDefault(); // 阻止长按后触发的单击事件
+					event.stopPropagation();
+				} else {
+					handleFavoriteToggle(event);
+				}
+			});
         
         ensureFavoritesArrayExists();
         ensureCurrentChatIsCached();
