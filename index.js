@@ -1985,9 +1985,10 @@ async function enterPreviewMode(messageId, chatFileNoExt) {
     const endIndex = Math.min(messagesArray.length, startIndex + totalMessagesToShow);
     const contextMessages = messagesArray.slice(startIndex, endIndex);
 
-    $('#send_form').hide();
+    // --- MODIFIED LOGIC: Use a class to control the state ---
+    $('#form_sheld').addClass('star-preview-active');
+    
     if (previewToggleElement) previewToggleElement.style.display = 'flex';
-	if (previewExitButtonElement) previewExitButtonElement.style.display = 'flex';
 	$('#top-bar').hide();
 	$('#top-settings-holder').hide();
     
@@ -2015,9 +2016,10 @@ async function exitPreviewMode() {
     if (!isPreviewingContext) return;
     
     if (previewToggleElement) previewToggleElement.style.display = 'none';
-    if (previewExitButtonElement) previewExitButtonElement.style.display = 'none';
     
-    $('#send_form').css('display', 'flex');
+    // --- MODIFIED LOGIC: Just remove the class, CSS will do the rest ---
+    $('#form_sheld').removeClass('star-preview-active');
+    
     $('#top-bar').css('display', 'flex');
     $('#top-settings-holder').css('display', 'flex');
 
@@ -2036,13 +2038,23 @@ function setupPreviewModeUI() {
         document.body.appendChild(previewToggleElement);
     }
     
+    // --- MODIFIED LOGIC ---
+    // 寻找正确的挂载点
+    const formSheld = document.getElementById('form_sheld');
+    if (!formSheld) {
+        console.error('[star] #form_sheld not found! Cannot attach exit preview button.');
+        return;
+    }
+
     if (!document.getElementById(PREVIEW_EXIT_BUTTON_ID)) {
         previewExitButtonElement = document.createElement('button');
         previewExitButtonElement.id = PREVIEW_EXIT_BUTTON_ID;
         previewExitButtonElement.className = 'menu_button';
         previewExitButtonElement.textContent = '结束预览';
         previewExitButtonElement.addEventListener('click', exitPreviewMode);
-        document.body.appendChild(previewExitButtonElement);
+        
+        // **将按钮添加到 #form_sheld 而不是 body**
+        formSheld.appendChild(previewExitButtonElement);
     }
 }
 
@@ -2051,6 +2063,8 @@ function setupPreviewModeUI() {
 // =================================================================
 jQuery(async () => {
     try {
+    
+        $('#form_sheld').removeClass('star-preview-active');
         if (!extension_settings[pluginName].lastSeenVersion) {
             extension_settings[pluginName].lastSeenVersion = '0.0.0';
         }
