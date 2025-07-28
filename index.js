@@ -5,7 +5,7 @@
 //                      UPDATE CHECKER CONSTANTS & STATE
 // =================================================================
 const GITHUB_REPO = 'uhhhh15/star';
-const LOCAL_VERSION = '2.0.0';
+const LOCAL_VERSION = '2.0.1';
 const REMOTE_CHANGELOG_PATH = 'CHANGELOG.md';
 const REMOTE_MANIFEST_PATH = 'manifest.json';
 const REMOTE_UPDATE_NOTICE_PATH = 'update.html';
@@ -517,30 +517,14 @@ function showUsageGuidePopup() {
                 <li><strong>主题切换:</strong> 在收藏面板中，长按左上角的角色/群组头像，可以打开菜单切换亮/暗主题。</li>
                 <li><strong>更新插件:</strong> 当 "收藏" 按钮旁出现红色的 "可更新" 按钮时，代表插件有新版本。点击它即可查看更新日志并更新。</li>
             </ul>
-            <h4 style="margin-top: 20px;"><i class="fa-solid fa-video"></i> 视频示例</h4>
-            <ul style="list-style-type: none; padding-left: 0;">
-                
-                <!-- 新增的视频演示 1 -->
-                <li style="margin-bottom: 20px;">
-                    <p style="margin-bottom: 5px;"><strong>演示1：基本收藏、备注与面板操作</strong></p>
-                    <video width="100%" controls preload="metadata" playsinline>
-                        <source src="https://files.catbox.moe/pbcyff.mp4" type="video/mp4">
-                        您的浏览器不支持视频播放。
-                    </video>
-                </li>
-
-                <!-- 新增的视频演示 2 -->
-                <li style="margin-bottom: 15px;">
-                    <p style="margin-bottom: 5px;"><strong>演示2：主题切换与插件更新</strong></p>
-                    <video width="100%" controls preload="metadata" playsinline>
-                        <source src="https://files.catbox.moe/h5whl9.mp4" type="video/mp4">
-                        您的浏览器不支持视频播放。
-                    </video>
-                </li>
+            <h4><i class="fa-solid fa-circle-info"></i> 视频示例</h4>
+            <ul>
+                <li><strong>主题切换:</strong> 在收藏面板中，长按左上角的角色/群组头像，可以打开菜单切换亮/暗主题。</li>
+                <li><strong>问题反馈:</strong> 如果有任何问题或建议可以直接在旅程检索“聊天收藏器”进入帖子进行反馈！</li>
             </ul>
         </div>
     `;
-	
+    
     // THE FIX IS HERE: Added 'cancelButton: false'
     callGenericPopup(guideHtml, 'html', { 
         okButton: '关闭', 
@@ -1156,6 +1140,49 @@ function renderIframesInElement($container) {
 // =================================================================
 //        CORE LOGIC FUNCTIONS
 // =================================================================
+/**
+ * NEW: Ensures the currently active chat is in the `allChatsFavoritesData` cache.
+ * This prevents the "chat cache not found" error when favoriting before opening the modal.
+ * It uses the readily available data from getContext() for instant caching.
+ */
+function ensureCurrentChatIsCached() {
+    try {
+        const context = getContext();
+        if (!context || !context.chatId) return; // Not in a chat
+
+        const currentContextChatIdNoExt = String(context.chatId).replace('.jsonl', '');
+        
+        // Check if it's already cached
+        const isAlreadyCached = allChatsFavoritesData.some(
+            chatData => String(chatData.fileName).replace('.jsonl', '') === currentContextChatIdNoExt
+        );
+
+        if (isAlreadyCached) {
+            return; // Already in cache, do nothing
+        }
+
+        // If not cached, create an entry using data from getContext()
+        const currentChatMetadata = ensureFavoritesArrayExists() || { favorites: [] };
+        
+        const newCacheEntry = {
+            fileName: currentContextChatIdNoExt,
+            displayName: currentContextChatIdNoExt, // Can be refined later if needed
+            metadata: currentChatMetadata,
+            favorites: currentChatMetadata.favorites || [],
+            messages: context.chat || [],
+            isGroup: !!context.groupId,
+            characterId: context.characterId,
+            groupId: context.groupId,
+        };
+        
+        allChatsFavoritesData.push(newCacheEntry);
+        console.log(`[${pluginName}] Cached data for new chat: ${currentContextChatIdNoExt}`);
+
+    } catch (error) {
+        console.error(`[${pluginName}] Failed to cache current chat:`, error);
+    }
+}
+
 function ensureFavoritesArrayExists() {
     let context;
     try {
@@ -1322,39 +1349,47 @@ function removeFavoriteById(favoriteId, targetChatFile = null) {
     return false;
 }
 
+/**
+ * REFACTORED: Updates a favorite's note, following the single-source-of-truth principle.
+ * It directly modifies the item in the cache and then saves it.
+ */
 function updateFavoriteNote(favoriteId, note, targetChatFile = null) {
     const context = getContext();
     const currentContextChatIdNoExt = String(context.chatId || '').replace('.jsonl', '');
-    const chatFileToModify = targetChatFile ? String(targetChatFile).replace('.jsonl','') : (currentViewingChatFile || currentContextChatIdNoExt);
-    if (!chatFileToModify) return;
-    let metadataToUpdate;
-    let messagesToUpdate = null;
-    if (chatFileToModify === currentContextChatIdNoExt) {
-        const globalChatMetadata = ensureFavoritesArrayExists();
-        if (!globalChatMetadata) return;
-        metadataToUpdate = globalChatMetadata;
-        messagesToUpdate = context.chat;
-    } else if (allChatsFavoritesData.length > 0) {
-        const chatData = allChatsFavoritesData.find(c => String(c.fileName).replace('.jsonl','') === chatFileToModify);
-        if (chatData && chatData.metadata) {
-            metadataToUpdate = JSON.parse(JSON.stringify(chatData.metadata));
-            messagesToUpdate = chatData.messages;
-        }
-    }
-    if (!metadataToUpdate || !Array.isArray(metadataToUpdate.favorites)) return;
-    const favorite = metadataToUpdate.favorites.find(fav => fav.id === favoriteId);
-    if (favorite) {
-        favorite.note = note;
-        const chatDataInCache = allChatsFavoritesData.find(c => String(c.fileName).replace('.jsonl', '') === chatFileToModify);
-        if (chatDataInCache) {
-            const favInCache = chatDataInCache.metadata.favorites.find(fav => fav.id === favoriteId);
-            if (favInCache) favInCache.note = note;
-        }
+    const chatFileToModify = targetChatFile ? String(targetChatFile).replace('.jsonl', '') : (currentViewingChatFile || currentContextChatIdNoExt);
 
+    if (!chatFileToModify) {
+        console.error(`[${pluginName}] updateFavoriteNote - Cannot determine target chat file.`);
+        return;
+    }
+
+    // Find the single source of truth: our cache.
+    const chatDataInCache = allChatsFavoritesData.find(c => String(c.fileName).replace('.jsonl', '') === chatFileToModify);
+
+    if (!chatDataInCache || !Array.isArray(chatDataInCache.metadata.favorites)) {
+        console.error(`[${pluginName}] updateFavoriteNote - Chat data for "${chatFileToModify}" or its favorites array not found.`);
+        return;
+    }
+
+    const favoriteToUpdate = chatDataInCache.metadata.favorites.find(fav => fav.id === favoriteId);
+
+    if (favoriteToUpdate) {
+        // Modify the note directly in the cache object
+        favoriteToUpdate.note = note;
+
+        // Propagate the change
         if (chatFileToModify === currentContextChatIdNoExt) {
+            // Sync with the live context metadata for the main chat UI
+            context.chatMetadata.favorites = chatDataInCache.metadata.favorites;
             saveMetadataDebounced();
         } else {
-            saveSpecificChatMetadata(chatFileToModify, metadataToUpdate, messagesToUpdate);
+            // Save to the specific chat file on the backend
+            saveSpecificChatMetadata(chatFileToModify, chatDataInCache.metadata, chatDataInCache.messages);
+        }
+
+        // If the modal is open and viewing the affected chat, re-render it
+        if (modalElement && modalElement.style.display === 'block' && currentViewingChatFile === chatFileToModify) {
+            renderFavoritesView(currentViewingChatFile);
         }
     }
 }
@@ -2058,6 +2093,8 @@ jQuery(async () => {
             });
         
         ensureFavoritesArrayExists();
+        ensureCurrentChatIsCached();
+        
         addFavoriteIconsToMessages();
         refreshFavoriteIconsInView();
 
@@ -2065,7 +2102,11 @@ jQuery(async () => {
 
         eventSource.on(event_types.CHAT_CHANGED, () => {
             if (isPreviewingContext) exitPreviewMode();
+            
+            // --- FIX: Cache on Chat Change ---
             ensureFavoritesArrayExists();
+            ensureCurrentChatIsCached();
+            
             setTimeout(() => {
                 addFavoriteIconsToMessages();
                 refreshFavoriteIconsInView();
