@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2.0.3] - 2025-7-28
+## [2.0.4] - 2025-7-28
 
 这是一个里程碑式的版本，对插件的核心功能和用户界面进行了完全重构，旨在提供更强大、更高效的收藏管理体验。
 
