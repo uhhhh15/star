@@ -5,7 +5,7 @@
 //                      UPDATE CHECKER CONSTANTS & STATE
 // =================================================================
 const GITHUB_REPO = 'uhhhh15/star';
-const LOCAL_VERSION = '2.0.5';
+const LOCAL_VERSION = '2.1.0';
 const REMOTE_CHANGELOG_PATH = 'CHANGELOG.md';
 const REMOTE_MANIFEST_PATH = 'manifest.json';
 const REMOTE_UPDATE_NOTICE_PATH = 'update.html';
@@ -30,6 +30,7 @@ import {
     saveSettingsDebounced,
     characters,
 } from '../../../../script.js';
+
 
 // --- Extension Helper Imports ---
 import {
@@ -634,7 +635,7 @@ function ensureModalStructure() {
                     <input type="text" class="${SEARCH_INPUT_CLASS}" placeholder="检索收藏...">
                     <i class="fa-solid fa-magnifying-glass ${SEARCH_ICON_CLASS}"></i>
                 </div>
-                <button class="${MODAL_CLOSE_X_CLASS}">×</button>
+                <div class="${MODAL_CLOSE_X_CLASS}"><i class="fa-solid fa-xmark"></i></div>
             </div>
             <div id="favorites_update_notice" style="display:none;"></div>
             <div class="${MODAL_BODY_CLASS}"></div>
@@ -1032,6 +1033,7 @@ function renderMainPanel(viewingChatData) {
     
     mainPanel.innerHTML = mainPanelHtml;
 
+  
     const favoritePreviews = mainPanel.querySelectorAll('.fav-preview');
     favoritePreviews.forEach(previewElement => {
         renderIframesInElement($(previewElement));
@@ -1075,6 +1077,7 @@ function renderFavoriteItem(favItem, index, originalMessage = null) {
     const isUserMessage = originalMessage ? originalMessage.is_user : favItem.role === 'user';
     const roleClass = isUserMessage ? 'role-user' : 'role-ai';
     let previewText = '', deletedClass = '', sendDateString = '', senderName = favItem.sender || '未知';
+
     if (originalMessage) {
         senderName = originalMessage.name || senderName;
         sendDateString = originalMessage.send_date ? timestampToMoment(originalMessage.send_date).format('YYYY-MM-DD HH:mm') : '[时间未知]';
@@ -1088,31 +1091,137 @@ function renderFavoriteItem(favItem, index, originalMessage = null) {
         sendDateString = '[时间不可用]';
         deletedClass = 'deleted';
     }
+
     const noteHtml = favItem.note ? `<div class="fav-note-content">${favItem.note}</div>` : '<div></div>';
+
+    // 【新逻辑】直接检查并生成推理内容的HTML
+    let reasoningHtml = '';
+    if (originalMessage && originalMessage.extra && originalMessage.extra.reasoning) {
+        // 【关键修复】使用SillyTavern核心的 messageFormatting 函数来正确渲染Markdown
+        const reasoningContent = messageFormatting(originalMessage.extra.reasoning, null, false, false, null, {}, false);
+
+        reasoningHtml = `
+            <details class="fav-reasoning-details">
+                <summary class="fav-reasoning-summary">
+                    <span>思考了一会</span>
+                    <i class="fa-solid fa-chevron-down reasoning-arrow"></i>
+                </summary>
+                <div class="fav-reasoning-content">${reasoningContent}</div>
+            </details>
+        `;
+    }
+
+    // 移除 mes class，移除旧的UI骨架，插入我们自己的 reasoningHtml
     return `
-        <div class="favorite-item ${roleClass}" data-fav-id="${favItem.id}" data-msg-id="${favItem.messageId}">
-            <div class="fav-header-info">
-                ${noteHtml}
-                <div class="fav-meta-cluster">
-                    <span class="fav-floor-number">#${favItem.messageId}</span>
-                    <div class="fav-send-date">${sendDateString}</div>
+            <div class="favorite-item ${roleClass}" data-fav-id="${favItem.id}" data-msg-id="${favItem.messageId}" mesid="${favItem.messageId}">
+                <div class="fav-header-info">
+                    ${noteHtml}
+                    <div class="fav-meta-cluster">
+                        <span class="fav-floor-number">#${favItem.messageId}</span>
+                        <div class="fav-send-date">${sendDateString}</div>
+                    </div>
+                </div>
+
+                ${reasoningHtml} <!-- 在这里插入推理内容 -->
+
+                <div class="fav-preview ${deletedClass}">${previewText}</div>
+
+                <div class="fav-actions">
+                    <i class="fa-solid fa-eye" title="预览上下文"></i>
+                    <i class="fa-solid fa-expand" title="查看上下文"></i>
+                    <i class="fa-solid fa-pencil" title="编辑消息原文"></i>
+                    <i class="fa-solid fa-feather-pointed" title="编辑备注"></i>
+                    <i class="fa-solid fa-trash" title="删除收藏"></i>
                 </div>
             </div>
-            <div class="fav-preview ${deletedClass}">${previewText}</div>
-            <div class="fav-actions">
-                <i class="fa-solid fa-eye" title="预览上下文"></i>
-                <i class="fa-solid fa-expand" title="查看上下文"></i>
-                <i class="fa-solid fa-camera" title="截图（即将推出）"></i>
-                <i class="fa-solid fa-pencil" title="编辑备注"></i>
-                <i class="fa-solid fa-trash" title="删除收藏"></i>
-            </div>
-        </div>
-    `;
+        `;
 }
 
 // =================================================================
 //                   MODAL EVENT HANDLER
 // =================================================================
+
+/**
+ * NEW: Displays a custom, theme-aware modal for editing text content.
+ * Mimics the look and feel of the context viewer.
+ * @param {string} title The title to display in the modal header.
+ * @param {string} initialContent The initial text for the textarea.
+ * @returns {Promise<string|null>} A promise that resolves with the edited text on save, or null on cancel.
+ */
+function showEditorModal(title, initialContent) {
+    return new Promise((resolve) => {
+        // Remove any existing editor frame to prevent duplicates
+        const existingFrame = document.getElementById('star-editor-frame');
+        if (existingFrame) existingFrame.remove();
+
+        const frameHtml = `
+            <div id="star-editor-frame" class="star-editor-frame">
+                <div class="star-editor-container">
+                    <div class="star-editor-header">
+                        <div class="star-editor-title">${title}</div>
+                        <div class="star-editor-close-btn"><i class="fa-solid fa-xmark"></i></div>
+                    </div>
+                    <div class="star-editor-body">
+                        <textarea id="star-editor-textarea" class="text_pole star-editor-textarea" spellcheck="false"></textarea>
+                    </div>
+                    <div class="star-editor-footer">
+                        <button id="star-editor-cancel" class="menu_button">取消</button>
+                        <button id="star-editor-save" class="menu_button primary_button">保存</button>
+                    </div>
+                </div>
+            </div>`;
+
+        document.body.insertAdjacentHTML('beforeend', frameHtml);
+
+        const frame = document.getElementById('star-editor-frame');
+        const container = frame.querySelector('.star-editor-container');
+        const textarea = frame.querySelector('#star-editor-textarea');
+        const saveBtn = frame.querySelector('#star-editor-save');
+        const cancelBtn = frame.querySelector('#star-editor-cancel');
+        const closeBtn = frame.querySelector('.star-editor-close-btn');
+
+        textarea.value = initialContent;
+
+        // Apply theme based on the main favorites modal
+        if (modalDialogElement && modalDialogElement.classList.contains('dark-theme')) {
+            container.classList.add('dark-theme');
+        }
+
+        const closeModal = (result) => {
+            frame.classList.remove('visible');
+            document.removeEventListener('keydown', handleEsc);
+            setTimeout(() => {
+                frame.remove();
+                resolve(result);
+            }, 300);
+        };
+
+        const handleEsc = (event) => {
+            if (event.key === 'Escape') {
+                closeModal(null);
+            }
+        };
+
+        saveBtn.addEventListener('click', () => closeModal(textarea.value));
+        cancelBtn.addEventListener('click', () => closeModal(null));
+        closeBtn.addEventListener('click', () => closeModal(null));
+        frame.addEventListener('click', (e) => {
+            if (e.target === frame) {
+                closeModal(null);
+            }
+        });
+        document.addEventListener('keydown', handleEsc);
+
+        // Show the modal with animation
+        setTimeout(() => {
+            frame.classList.add('visible');
+            textarea.focus();
+            // 将光标移动到末尾，而不是全选文本
+            textarea.selectionStart = textarea.selectionEnd = textarea.value.length;
+        }, 10);
+    });
+}
+
 async function handleModalClick(event) {
     const target = event.target;
     const chatListItem = target.closest('.favorites-chat-list-item');
@@ -1146,22 +1255,23 @@ async function handleModalClick(event) {
     }
     
     const favItemEl = target.closest('.favorite-item');
-    if (favItemEl) {
-        const favId = favItemEl.dataset.favId;
-        const msgId = favItemEl.dataset.msgId;
+    
+	if (favItemEl) {
+		const favId = favItemEl.dataset.favId;
+		const msgId = favItemEl.dataset.msgId;
 
-        if (target.classList.contains('fa-expand')) { 
-            await handleViewContext(msgId, currentViewingChatFile);
-        } else if (target.classList.contains('fa-pencil')) {
-            await handleEditNote(favId, currentViewingChatFile);
-        } else if (target.classList.contains('fa-trash')) {
-            await handleDeleteFavoriteFromPopup(favId, msgId, currentViewingChatFile);
-        } else if (target.classList.contains('fa-eye')) { 
-            await enterPreviewMode(msgId, currentViewingChatFile);
-        } else if (target.classList.contains('fa-camera')) {
-            toastr.info('即将推出截图功能，尽请期待！');
-        }
-    }
+		if (target.classList.contains('fa-expand')) {
+			await handleViewContext(msgId, currentViewingChatFile);
+		} else if (target.classList.contains('fa-feather-pointed')) {
+			await handleEditNote(favId, currentViewingChatFile);
+		} else if (target.classList.contains('fa-trash')) {
+			await handleDeleteFavoriteFromPopup(favId, msgId, currentViewingChatFile);
+		} else if (target.classList.contains('fa-eye')) {
+			await enterPreviewMode(msgId, currentViewingChatFile);
+		} else if (target.classList.contains('fa-pencil')) {
+			await handleEditMessageContent(favId, msgId, currentViewingChatFile);
+		}
+	}
 }
 
 // ... (The rest of the functions from renderIframesInElement onwards remain largely the same) ...
@@ -1479,10 +1589,7 @@ function updateFavoriteNote(favoriteId, note, targetChatFile = null) {
             saveSpecificChatMetadata(chatFileToModify, chatDataInCache.metadata, chatDataInCache.messages);
         }
 
-        // If the modal is open and viewing the affected chat, re-render it
-        if (modalElement && modalElement.style.display === 'block' && currentViewingChatFile === chatFileToModify) {
-            renderFavoritesView(currentViewingChatFile);
-        }
+        // The UI update logic has been moved to handleEditNote
     }
 }
 
@@ -1514,12 +1621,61 @@ async function handleDeleteFavoriteFromPopup(favId, messageId, targetChatFile = 
     }
 }
 
+async function handleEditMessageContent(favId, messageId, targetChatFile = null) {
+    const chatFileToModify = String(targetChatFile).replace('.jsonl','');
+
+    const chatData = allChatsFavoritesData.find(c => String(c.fileName).replace('.jsonl', '') === chatFileToModify);
+    if (!chatData || !Array.isArray(chatData.messages)) {
+        toastr.error('错误：找不到此收藏对应的聊天数据缓存。');
+        return;
+    }
+
+    const msgIndex = parseInt(messageId, 10);
+    if (isNaN(msgIndex) || msgIndex < 0 || msgIndex >= chatData.messages.length) {
+        toastr.error(`错误：消息索引无效 (${messageId})。`);
+        return;
+    }
+
+    const messageToEdit = chatData.messages[msgIndex];
+    const originalContent = messageToEdit.mes;
+
+    // --- REFACTORED PART ---
+    // Use the new custom editor modal instead of callGenericPopup
+    const newContent = await showEditorModal('编辑消息原文', originalContent);
+
+    // Check if the user cancelled (newContent will be null) or made no changes
+    if (newContent === null || newContent === originalContent) {
+        return;
+    }
+    // --- END REFACTORED PART ---
+
+    messageToEdit.mes = newContent;
+
+    try {
+        await saveSpecificChatMetadata(chatFileToModify, chatData.metadata, chatData.messages);
+        toastr.success('消息内容已成功修改并保存！');
+        await renderFavoritesView(currentViewingChatFile);
+
+        const context = getContext();
+        const currentContextChatIdNoExt = String(context.chatId || '').replace('.jsonl', '');
+        if (chatFileToModify === currentContextChatIdNoExt) {
+            await reloadCurrentChat();
+        }
+    } catch (error) {
+        messageToEdit.mes = originalContent; // Rollback on failure
+        console.error(`[${pluginName}] Failed to save edited message content:`, error);
+        toastr.error('保存修改失败，请检查控制台获取更多信息。');
+    }
+}
+
 async function handleEditNote(favId, targetChatFile = null) {
     const chatFileToModify = targetChatFile ? String(targetChatFile).replace('.jsonl','') : currentViewingChatFile;
     let favorite = null;
     let currentNote = '';
     const context = getContext();
     const currentContextChatIdNoExt = String(context.chatId || '').replace('.jsonl', '');
+
+    // 步骤1：安全地获取当前备注
     if (chatFileToModify === currentContextChatIdNoExt) {
         const meta = ensureFavoritesArrayExists();
         favorite = meta?.favorites?.find(fav => fav.id === favId);
@@ -1527,19 +1683,54 @@ async function handleEditNote(favId, targetChatFile = null) {
         const chatData = allChatsFavoritesData.find(c => String(c.fileName).replace('.jsonl','') === chatFileToModify);
         favorite = chatData?.metadata?.favorites?.find(fav => fav.id === favId);
     }
-    
+
     if (favorite) {
         currentNote = favorite.note || '';
     } else {
         toastr.error('无法找到收藏项');
         return;
     }
-    
-    const result = await callGenericPopup('为这条收藏添加备注:', POPUP_TYPE.INPUT, currentNote);
 
-    if (result !== null && result !== POPUP_RESULT.CANCELLED && result !== currentNote) {
-        updateFavoriteNote(favId, result, chatFileToModify);
-        await renderFavoritesView(currentViewingChatFile);
+    // 步骤2：弹出编辑框
+    const newNote = await callGenericPopup('编辑收藏备注:', POPUP_TYPE.INPUT, currentNote, { cancelButton: false });
+
+    // **【关键修复 #1 - 逻辑门卫】**
+    // 这个条件是整个修复的核心。它只允许在两种情况下失败：
+    // a) 用户点击了取消 (newNote === null)
+    // b) 用户点击了保存但内容没变 (newNote === currentNote)
+    // 任何其他情况（包括将备注从有改为空）都会通过。
+    if (newNote !== null && newNote !== currentNote) {
+        
+        // 步骤3：更新底层数据
+        updateFavoriteNote(favId, newNote, chatFileToModify);
+
+        // 步骤4：执行健壮的、可预测的UI更新
+        if (modalElement && modalElement.style.display === 'block') {
+            const favItemEl = modalBodyElement.querySelector(`.favorite-item[data-fav-id="${favId}"]`);
+            if (!favItemEl) return; // 目标不在当前页，无需操作UI
+
+            let noteEl = favItemEl.querySelector('.fav-note-content');
+            
+            // **【关键修复 #2 - UI更新逻辑重构】**
+            // 彻底抛弃了 `if (newNote)` 这种模糊的判断方式。
+
+            // Case A: 新备注有内容 (无论是新增还是修改)
+            if (newNote.length > 0) {
+                if (!noteEl) {
+                    // 如果DOM元素不存在，就创建并插入它
+                    noteEl = document.createElement('div');
+                    noteEl.className = 'fav-note-content';
+                    const headerInfo = favItemEl.querySelector('.fav-header-info');
+                    if (headerInfo) headerInfo.prepend(noteEl);
+                }
+                noteEl.textContent = newNote; // 更新文本内容
+            } 
+            // Case B: 新备注是空字符串 "" (用户主动清空并保存)
+            else {
+                // 如果DOM元素存在，就移除它
+                if (noteEl) noteEl.remove();
+            }
+        }
     }
 }
 
@@ -1944,19 +2135,19 @@ async function handleViewContext(messageId, chatFileNoExt) {
         for (let i = range; i >= 1; i--) {
             const prevIndex = msgIndex - i;
             if (prevIndex >= 0) {
-                contextMessages.push(messagesArray[prevIndex]);
+                contextMessages.push({ message: messagesArray[prevIndex], originalIndex: prevIndex });
             }
         }
-        
+
         // 2. Add the highlighted message and record its index in the new array
         const highlightedIndex = contextMessages.length;
-        contextMessages.push(messagesArray[msgIndex]);
-        
+        contextMessages.push({ message: messagesArray[msgIndex], originalIndex: msgIndex });
+
         // 3. Get next messages
         for (let i = 1; i <= range; i++) {
             const nextIndex = msgIndex + i;
             if (nextIndex < messagesArray.length) {
-                contextMessages.push(messagesArray[nextIndex]);
+                contextMessages.push({ message: messagesArray[nextIndex], originalIndex: nextIndex });
             }
         }
         // --- END NEW LOGIC ---
@@ -1984,7 +2175,7 @@ function showContextMessagesFrame(messages, highlightedIndex, chatContextForAvat
         <div id="context-messages-frame" class="context-messages-frame">
             <div class="context-messages-container">
                 <div class="context-messages-header">
-                    <div class="context-title">消息上下文 ${rangeText}</div>
+                    <div class="context-title">消息上下文</div>
                     <div class="context-close-btn"><i class="fa-solid fa-xmark"></i></div>
                 </div>
                 <div class="context-messages-content"></div>
@@ -2012,13 +2203,14 @@ function showContextMessagesFrame(messages, highlightedIndex, chatContextForAvat
     scrollbar.className = 'k-scrollerbar';
     container.prepend(scrollbar);
     
-    messages.forEach((message, index) => {
-        if (message) {
+    messages.forEach((msgData, index) => {
+        if (msgData && msgData.message) {
             const isHighlighted = (index === highlightedIndex);
-            contentContainer.insertAdjacentHTML('beforeend', renderContextMessage(message, isHighlighted, chatContextForAvatar));
+            contentContainer.insertAdjacentHTML('beforeend', renderContextMessage(msgData, isHighlighted, chatContextForAvatar));
         }
     });
 
+    
     applySavedTheme();
     renderIframesInElement($(contentContainer));
 
@@ -2058,7 +2250,8 @@ function closeContextFrame() {
     }
 }
 
-function renderContextMessage(message, isHighlighted, chatContext) {
+function renderContextMessage(msgData, isHighlighted, chatContext) {
+    const { message, originalIndex } = msgData;
     if (!message) return '';
     const isUser = message.is_user;
     const senderName = message.name || (isUser ? '用户' : '角色');
@@ -2082,10 +2275,10 @@ function renderContextMessage(message, isHighlighted, chatContext) {
              avatarImg = `characters/${message.avatar}`;
         }
     }
-    
+
     let formattedContent = message.mes || '[空消息]';
     try {
-        formattedContent = messageFormatting(formattedContent, senderName, false, isUser, null, {}, false);
+        formattedContent = messageFormatting(formattedContent, senderName, false, isUser, originalIndex, {}, false);
     } catch (error) {
         formattedContent = `<div class="formatting-error">${message.mes || '[空消息]'}</div>`;
     }
@@ -2093,14 +2286,35 @@ function renderContextMessage(message, isHighlighted, chatContext) {
     const messageClass = isUser ? 'user-message' : 'ai-message';
     const highlightClass = isHighlighted ? 'highlighted-message' : '';
 
+    // 【新逻辑】直接检查并生成推理内容的HTML
+    let reasoningHtml = '';
+    if (message && message.extra && message.extra.reasoning) {
+        // 【关键修复】使用SillyTavern核心的 messageFormatting 函数来正确渲染Markdown
+        const reasoningContent = messageFormatting(message.extra.reasoning, null, false, false, null, {}, false);
+
+        reasoningHtml = `
+            <details class="fav-reasoning-details">
+                <summary class="fav-reasoning-summary">
+                    <span>思考了一会</span>
+                    <i class="fa-solid fa-chevron-down reasoning-arrow"></i>
+                </summary>
+                <div class="fav-reasoning-content">${reasoningContent}</div>
+            </details>
+        `;
+    }
+
+    // 【关键修改】移除 mes class，移除旧的UI骨架，插入我们自己的 reasoningHtml
     return `
-        <div class="context-message-wrapper ${messageClass} ${highlightClass}">
-            <div class="context-message-avatar"><img src="${avatarImg}" alt="${senderName}" onerror="this.src='img/ai4.png'"></div>
-            <div class="context-message-bubble">
-                <div class="context-message-name">${senderName}</div>
-                <div class="context-message-text">${formattedContent}</div>
-            </div>
-        </div>`;
+            <div class="context-message-wrapper ${messageClass} ${highlightClass}" mesid="${originalIndex}">
+                <div class="context-message-avatar"><img src="${avatarImg}" alt="${senderName}" onerror="this.src='img/ai4.png'"></div>
+                <div class="context-message-bubble">
+                    <div class="context-message-name">${senderName}</div>
+
+                    ${reasoningHtml} <!-- 在这里插入推理内容 -->
+
+                    <div class="context-message-text">${formattedContent}</div>
+                </div>
+            </div>`;
 }
 
 function scrollToMessage(messageId, alignment = 'start', behavior = 'auto', timeout = 150) {
