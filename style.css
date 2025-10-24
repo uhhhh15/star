@@ -132,8 +132,6 @@
     border-color: rgba(216, 168, 231, 0.95) !important;
 }
 
-.favorites-modal-close-x { background: transparent !important; border: none !important; color: #555 !important; font-size: 28px; font-weight: 300; cursor: pointer; padding: 8px; line-height: 1; transition: all 0.2s ease; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.favorites-modal-close-x:hover { color: #000 !important; transform: rotate(90deg); }
 
 /* --- Modal Body --- */
 .favorites-modal-body { padding: 0; overflow-y: hidden; flex-grow: 1; display: flex; min-height: 0; }
@@ -209,17 +207,20 @@
 .favorite-toggle-icon i.fa-solid { color: yellow !important; }
         
 /* --- Context Viewer Styles (LIGHT) --- */
-.context-messages-frame { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0); z-index: 10000; display: flex; align-items: center; justify-content: center; opacity: 0; transition: all 0.3s ease; backdrop-filter: blur(0px); -webkit-backdrop-filter: blur(0px); pointer-events: none; }
+.context-messages-frame { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.4); z-index: 10000; display: flex; align-items: center; justify-content: center; opacity: 0; transition: all 0.3s ease; backdrop-filter: blur(0px); -webkit-backdrop-filter: blur(0px); pointer-events: none; }
 .context-messages-frame.visible { opacity: 1; backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); pointer-events: auto; }
 .context-messages-container { position: relative; /* For scrollbar positioning */ width: 900px; max-width: 95vw; height: 85vh; background: #ffffff !important; border-radius: 16px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2); overflow: hidden; display: flex; flex-direction: column; transform: translateY(20px); opacity: 0; transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
 .context-messages-frame.visible .context-messages-container { transform: translateY(0); opacity: 1; }
 .context-messages-header { background: #f7f7f7 !important; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e0e0e0 !important; }
 .context-title { font-size: 1.2em; font-weight: bold; color: #333 !important; }
-.context-close-btn { cursor: pointer; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background-color: transparent !important; transition: background-color 0.2s ease; }
-.context-close-btn:hover { background-color: #e0e0e0 !important; }
-.context-close-btn i { color: #555 !important; font-size: 16px; }
+.context-close-btn, .favorites-modal-close-x { cursor: pointer; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background-color: transparent !important; transition: background-color 0.2s ease, transform 0.2s ease; flex-shrink: 0; }
+.context-close-btn:hover, .favorites-modal-close-x:hover { background-color: #e0e0e0 !important; transform: rotate(90deg); }
+.context-close-btn i, .favorites-modal-close-x i { color: #555 !important; font-size: 16px; }
 .context-messages-content { padding: 10px 0; overflow-y: auto; flex-grow: 1; display: flex; flex-direction: column; gap: 20px; }
 .context-message-wrapper { display: flex; align-items: flex-start; gap: 12px; animation: fadeInMessage 0.3s ease-out forwards; width: 90%; margin-left: auto; margin-right: auto; }
+.context-message-wrapper.user-message {
+    justify-content: flex-end;
+}
 .context-message-avatar { flex-shrink: 0; width: 42px; height: 42px; border-radius: 50%; overflow: hidden; }
 .user-message .context-message-avatar { display: none; }
 .context-message-avatar img { width: 100%; height: 100%; object-fit: cover; }
@@ -228,7 +229,7 @@
 .user-message .context-message-name { display: none; }
 .context-message-text { line-height: 1.6; word-wrap: break-word; color: #555 !important; white-space: pre-wrap; }
 .context-message-text p { margin: 0; }
-.user-message .context-message-bubble { background-color: #e9eef3 !important; padding: 12px 16px; border-radius: 12px; }
+.user-message .context-message-bubble { background-color: #e9eef3 !important; padding: 12px 16px; border-radius: 12px; flex-grow: 0; max-width: 95%; }
 
 /* CUSTOM CONTEXT SCROLLBAR */
 .k-scrollerbar {
@@ -317,11 +318,6 @@
     text-shadow: none !important;
 }
 
-@media (max-width: 950px) {
-    .context-messages-frame { align-items: flex-start; padding-top: 4vh; padding-bottom: 100vh; }
-    .context-messages-container { height: 85vh; }
-}
-
 /* ================================================================== */
 /*                         DARK THEME OVERRIDES                       */
 /* ================================================================== */
@@ -355,12 +351,6 @@
 
 .dark-theme .favorites-search-filter.active {
     color: rgba(216, 168, 231, 0.95) !important;
-}
-.dark-theme .favorites-modal-close-x {
-    color: #aaa !important;
-}
-.dark-theme .favorites-modal-close-x:hover {
-    color: #fff !important;
 }
 
 /* --- Two-Panel Layout (DARK) --- */
@@ -456,10 +446,10 @@
 .dark-theme .context-title {
     color: #f0f0f0 !important;
 }
-.dark-theme .context-close-btn:hover {
+.dark-theme .context-close-btn:hover, .dark-theme .favorites-modal-close-x:hover {
     background-color: #44474b !important;
 }
-.dark-theme .context-close-btn i {
+.dark-theme .context-close-btn i, .dark-theme .favorites-modal-close-x i {
     color: #aaa !important;
 }
 .dark-theme .context-message-name {
@@ -578,4 +568,275 @@ body:has(.dark-theme#favorites-preview-toggle) #favorites-preview-toggle,
 
 .dark-theme .star-options-menu-item i {
     color: #aaa;
+}
+
+/* --- NEW: Custom styles for the message editor popup --- */
+.star-message-editor-textarea {
+    /* 强制使用100%宽度，并进行盒模型计算 */
+    width: 100% !important;
+    box-sizing: border-box !important;
+
+    /* 关键：设置高度以填充可用空间 */
+    /* 使用calc来减去标题和一些边距的高度，使其接近主弹窗的高度感 */
+    height: calc(85vh - 150px) !important;
+    max-height: 600px; /* 添加一个最大高度以防万一 */
+    min-height: 200px; /* 保证一个最小高度 */
+
+    /* 其他样式，确保与SillyTavern风格一致 */
+    margin-top: 15px !important;
+    resize: vertical; /* 允许用户垂直调整大小 */
+}
+
+/* 确保在深色主题下也有正确的样式 */
+.dark .star-message-editor-textarea {
+    background-color: var(--SillyTavernMainBackground) !important;
+    color: var(--SillyTavernMainChatColor) !important;
+    border-color: var(--SillyTavernBorderColor) !important;
+}
+
+/* --- NEW: Custom Editor Modal --- */
+.star-editor-frame {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0);
+    z-index: 10002; /* Higher than main modal, same as context viewer */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(0px);
+    -webkit-backdrop-filter: blur(0px);
+    pointer-events: none;
+}
+.star-editor-frame.visible {
+    opacity: 1;
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    pointer-events: auto;
+}
+.star-editor-container {
+    /* Mimic .context-messages-container size and shape */
+    position: relative;
+    width: 900px;
+    max-width: 95vw;
+    height: 85vh;
+    border-radius: 16px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    transform: translateY(20px);
+    opacity: 0;
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.star-editor-frame.visible .star-editor-container {
+    transform: translateY(0);
+    opacity: 1;
+}
+
+/* --- Editor Header --- */
+.star-editor-header {
+    padding: 15px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+}
+.star-editor-title {
+    font-size: 1.2em;
+    font-weight: bold;
+}
+.star-editor-close-btn {
+    cursor: pointer;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s ease;
+}
+.star-editor-close-btn i { font-size: 16px; }
+
+/* --- Editor Body (Textarea) --- */
+.star-editor-body {
+    padding: 0 20px 10px;
+    flex-grow: 1;
+    display: flex;
+    min-height: 0;
+}
+.star-editor-textarea {
+    width: 100% !important;
+    height: 100% !important;
+    box-sizing: border-box !important;
+    resize: vertical;
+    padding: 10px;
+    border-radius: 8px;
+    font-family: var(--chatFontFamily) !important;
+    font-size: 1em !important;
+}
+
+/* --- Editor Footer (Buttons) --- */
+.star-editor-footer {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    padding: 10px 20px 15px;
+    flex-shrink: 0;
+}
+
+.star-editor-footer .menu_button {
+    width: auto !important;
+}
+/* --- Light Theme (Default) --- */
+.star-editor-container { background: #ffffff !important; }
+.star-editor-header { border-bottom: 1px solid #e0e0e0 !important; }
+.star-editor-title { color: #333 !important; }
+.star-editor-close-btn:hover { background-color: #e0e0e0 !important; }
+.star-editor-close-btn i { color: #555 !important; }
+.star-editor-textarea {
+    background-color: #f7f7f7 !important;
+    color: #000000 !important;
+    border: 1px solid #ddd !important;
+}
+
+/* --- Dark Theme Overrides --- */
+.dark-theme.star-editor-container { background: rgba(30, 30, 30, 1) !important; }
+.dark-theme .star-editor-header { border-bottom: 1px solid #44474b !important; }
+.dark-theme .star-editor-title { color: #f0f0f0 !important; }
+.dark-theme .star-editor-close-btn:hover { background-color: #44474b !important; }
+.dark-theme .star-editor-close-btn i { color: #aaa !important; }
+.dark-theme .star-editor-textarea {
+    background-color: var(--SillyTavernMainBackground) !important;
+    color: #ffffff !important;
+    border-color: var(--SillyTavernBorderColor) !important;
+}
+
+/* --- Cleanup old specific styles --- */
+/* We can now remove the old specific textarea style as .star-editor-textarea is more robust */
+.star-message-editor-textarea {
+    display: none; /* Hide it to ensure the new styles are used */
+}
+
+/* --- NEW: Custom Reasoning Display Styles --- */
+.fav-reasoning-details {
+    margin: 0 0 10px 0; /* 在推理块和消息内容之间增加一些间距 */
+    border-radius: 6px;
+    border: 1px solid transparent;
+}
+
+.fav-reasoning-summary {
+    cursor: pointer;
+    font-size: 0.9em;
+    font-weight: 500;
+    padding: 4px 8px;
+    border-radius: 4px;
+    display: flex; /* 修改为 flex */
+    justify-content: space-between; /* 新增，两端对齐 */
+    align-items: center;
+    gap: 6px;
+    transition: background-color 0.2s ease;
+    user-select: none; /* 防止双击选中文本 */
+}
+
+.fav-reasoning-summary::-webkit-details-marker {
+    display: none; /* 隐藏默认的三角箭头 */
+}
+
+/* summary 内的第一个图标（大脑）样式 */
+.fav-reasoning-summary span i {
+    font-size: 1.1em;
+    margin-right: 4px;
+}
+
+/* 默认折叠时，details为行内块，宽度自适应，且在flex布局中不被拉伸 */
+.fav-reasoning-details {
+    display: inline-block;
+    align-self: flex-start; /* <<< 关键新增 */
+}
+
+/* 展开时，details变为块级，宽度占满，并恢复flex的默认拉伸行为 */
+details[open].fav-reasoning-details {
+    display: block;
+    align-self: stretch; /* <<< 关键新增，确保展开时占满 */
+}
+
+/* 箭头图标的过渡效果 */
+.reasoning-arrow {
+    transition: transform 0.2s ease-in-out;
+}
+
+/* 展开时，箭头旋转180度 */
+details[open] .fav-reasoning-summary .reasoning-arrow {
+    transform: rotate(180deg);
+}
+
+.fav-reasoning-content {
+    margin-top: 8px;
+    padding: 10px;
+    border-radius: 6px;
+    word-break: break-word;  /* 长单词或链接自动换行 */
+    font-size: 0.9em;
+    max-height: 250px;
+    overflow-y: auto;
+}
+
+/* --- Light Theme (Default) --- */
+.favorites-modal-dialog:not(.dark-theme) .fav-reasoning-details {
+    border-color: #e0e0e0;
+}
+.favorites-modal-dialog:not(.dark-theme) .fav-reasoning-summary {
+    color: #555;
+}
+.favorites-modal-dialog:not(.dark-theme) .fav-reasoning-summary:hover {
+    background-color: #f0f0f0;
+}
+.favorites-modal-dialog:not(.dark-theme) .fav-reasoning-content {
+    background-color: #f7f7f7;
+    color: #444;
+}
+
+/* --- Dark Theme Overrides --- */
+.dark-theme.favorites-modal-dialog .fav-reasoning-details,
+.dark-theme.context-messages-container .fav-reasoning-details {
+    border-color: #444;
+}
+.dark-theme.favorites-modal-dialog .fav-reasoning-summary,
+.dark-theme.context-messages-container .fav-reasoning-summary {
+    color: #bbb;
+}
+.dark-theme.favorites-modal-dialog .fav-reasoning-summary:hover,
+.dark-theme.context-messages-container .fav-reasoning-summary:hover {
+    background-color: #3a3a3c;
+}
+.dark-theme.favorites-modal-dialog .fav-reasoning-content,
+.dark-theme.context-messages-container .fav-reasoning-content {
+    background-color: #2c2c2e;
+    color: #ddd;
+}
+
+/* Apply styles to context viewer as well */
+.context-messages-container:not(.dark-theme) .fav-reasoning-details { border-color: #e0e0e0; }
+.context-messages-container:not(.dark-theme) .fav-reasoning-summary { color: #555; }
+.context-messages-container:not(.dark-theme) .fav-reasoning-summary:hover { background-color: #f0f0f0; }
+.context-messages-container:not(.dark-theme) .fav-reasoning-content { background-color: #f7f7f7; color: #444; }
+
+@media (max-width: 950px) {
+    /* 将两个弹窗的遮罩层（父容器）样式统一 */
+    .context-messages-frame,
+    .star-editor-frame {
+        align-items: flex-start; /* 从垂直居中改为顶部对齐 */
+        padding-top: 4vh;        /* 增加一个顶部安全边距 */
+        padding-bottom: 100vh;
+    }
+
+    /* 确保两个弹窗的容器高度一致 */
+    .context-messages-container,
+    .star-editor-container {
+        height: 85vh;
+    }
 }
