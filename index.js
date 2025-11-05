@@ -5,7 +5,7 @@
 //                      UPDATE CHECKER CONSTANTS & STATE
 // =================================================================
 const GITHUB_REPO = 'uhhhh15/star';
-const LOCAL_VERSION = '2.1.0';
+const LOCAL_VERSION = '2.2.0';
 const REMOTE_CHANGELOG_PATH = 'CHANGELOG.md';
 const REMOTE_MANIFEST_PATH = 'manifest.json';
 const REMOTE_UPDATE_NOTICE_PATH = 'update.html';
@@ -292,7 +292,6 @@ function markUpdateAsSeen() {
  * (已重写逻辑：不再显示CHANGELOG，而是直接获取并显示 update.html 的内容)
  */
 async function displayUpdateNoticeInModal() {
-    return;
     const noticeEl = favDoc.getElementById('favorites_update_notice');
     if (!noticeEl) return;
 
@@ -325,30 +324,46 @@ let modalBodyElement = null;
 // =================================================================
 //                      PLUGIN-SPECIFIC STATE
 // =================================================================
+
+// --- Data & Pagination State (DEFAULTS FIRST) ---
+// 1. 首先声明所有状态变量并赋予默认值
+let currentPage = 1;
+let itemsPerPage = 10; // Default value, will be overridden by settings
+let currentViewingChatFile = null; // chat file name without .jsonl
+let allChatsFavoritesData = [];    // Cache for all chats and their favorites
+let chatListScrollTop = 0;
+let isLoadingOtherChats = false; // Flag to prevent multiple background loads
+
+// --- Settings Initialization & Loading ---
+// 2. 然后，检查并初始化设置，并用设置值覆盖上面的默认值
 if (!extension_settings[pluginName]) {
     extension_settings[pluginName] = {};
 }
-// 为新设置提供默认值
+
+// Context View Range Setting
 if (extension_settings[pluginName].contextViewRange === undefined) {
-    // 默认值为1，表示查看前后各1条消息
     extension_settings[pluginName].contextViewRange = 1;
-    // 立即保存默认值
     saveSettingsDebounced();
     console.log(`[${pluginName}] Initialized contextViewRange to default value: 1`);
 }
+
+// Items Per Page Setting
+if (extension_settings[pluginName].itemsPerPage === undefined) {
+    extension_settings[pluginName].itemsPerPage = 10;
+    saveSettingsDebounced();
+    console.log(`[${pluginName}] Initialized itemsPerPage to default value: 10`);
+}
+// 从设置中加载值来覆盖默认值
+itemsPerPage = extension_settings[pluginName].itemsPerPage;
+
+// Chat Notes Setting
 if (!extension_settings[pluginName].chatNotes) {
     extension_settings[pluginName].chatNotes = {};
 }
 
 // 添加调试日志以验证设置是否正确加载
 console.log(`[${pluginName}] Loaded settings:`, extension_settings[pluginName]);
-// --- Data & Pagination State ---
-let currentPage = 1;
-const itemsPerPage = 5;
-let currentViewingChatFile = null; // chat file name without .jsonl
-let allChatsFavoritesData = [];    // Cache for all chats and their favorites
-let chatListScrollTop = 0;
-let isLoadingOtherChats = false; // Flag to prevent multiple background loads
+console.log(`[${pluginName}] Final itemsPerPage value: ${itemsPerPage}`);
 
 // --- Preview Mode State ---
 let isPreviewingContext = false;
@@ -427,7 +442,7 @@ function showAvatarLongPressMenu() {
     }
 
     menuDialog.innerHTML = `
-        <div class="star-options-menu-header">选项</div>
+        <div class="star-options-menu-header">设置</div>
         <div class="star-options-menu-body">
             <div class="star-options-menu-item" data-action="toggle-theme">
                 <i class="fa-solid fa-palette"></i>
@@ -436,6 +451,10 @@ function showAvatarLongPressMenu() {
             <div class="star-options-menu-item" data-action="context-range-settings">
                 <i class="fa-solid fa-arrows-left-right-to-line"></i>
                 <span>修改上下文范围</span>
+            </div>
+            <div class="star-options-menu-item" data-action="items-per-page-settings">
+                <i class="fa-solid fa-list-ol"></i>
+                <span>修改显示收藏数</span>
             </div>
             <div class="star-options-menu-item" data-action="usage-guide">
                 <i class="fa-solid fa-book-open"></i>
@@ -495,6 +514,8 @@ function showAvatarLongPressMenu() {
             setTimeout(showUsageGuidePopup, 100);
         } else if (action === 'context-range-settings') {
             setTimeout(showContextRangeSettingsPopup, 100);
+        } else if (action === 'items-per-page-settings') {
+            setTimeout(showItemsPerPageSettingsPopup, 100);
         }
     });
 
@@ -529,40 +550,108 @@ async function showContextRangeSettingsPopup() {
         </div>
     `;
 
-    const popupResult = await callGenericPopup(popupHtml, 'html', {
+    // 严格按照 callGenericPopup(content, type, inputValue, options) 的函数签名传递参数。
+    // 我们不再需要等待返回值，因为处理逻辑移到了 onClosing 中
+    callGenericPopup(popupHtml, POPUP_TYPE.TEXT, '', {
         title: '修改查看上下文范围',
         okButton: '保存',
         cancelButton: '取消',
         wide: true,
-    });
+        // *** 核心修复：使用 onClosing 回调函数 ***
+        onClosing: (popup) => {
+            // 这个函数在弹窗关闭前执行，此时DOM元素依然存在。
+            // popup.result 会告诉我们是哪个按钮被点击了。
+            if (popup.result === POPUP_RESULT.AFFIRMATIVE) { // 用户点击了"保存"
+                const inputElement = popup.dlg.querySelector('#star_context_range_input');
+                if (!inputElement) {
+                    toastr.error('发生内部错误：无法找到输入框。');
+                    return true; // 允许关闭弹窗
+                }
 
-    // 只有当用户点击"保存"时才继续
-    if (popupResult) {
-        const inputElement = document.getElementById('star_context_range_input');
-        if (!inputElement) return;
+                const newValue = parseInt(inputElement.value, 10);
 
-        const newValue = parseInt(inputElement.value, 10);
-
-        // 验证输入是否为有效的非负整数
-        if (!isNaN(newValue) && newValue >= 0) {
-            // 只有当值发生变化时才保存，避免不必要的操作
-            if (newValue !== currentValue) {
-                // **【关键修复】确保设置被正确保存**
-                extension_settings[pluginName].contextViewRange = newValue;
-                
-                // 强制触发保存，确保设置被持久化
-                saveSettingsDebounced();
-                
-                // 添加调试日志
-                console.log(`[${pluginName}] Context view range updated to: ${newValue}`);
-                console.log(`[${pluginName}] Current settings:`, extension_settings[pluginName]);
-                
-                toastr.success(`上下文范围已成功更新为: ${newValue}`);
+                // 验证输入是否为有效的非负整数
+                if (!isNaN(newValue) && newValue >= 0) {
+                    if (newValue !== currentValue) {
+                        extension_settings[pluginName].contextViewRange = newValue;
+                        saveSettingsDebounced();
+                        console.log(`[${pluginName}] Context view range updated to: ${newValue}`);
+                        toastr.success(`上下文范围已成功更新为: ${newValue}`);
+                    }
+                } else {
+                    toastr.error('请输入一个有效的非负整数。');
+                    return false; // **返回 false 会阻止弹窗关闭**，让用户可以修正输入
+                }
             }
-        } else {
-            toastr.error('请输入一个有效的非负整数。');
-        }
+            return true; // 对于其他情况 (取消、关闭)，总是允许关闭
+        },
+    });
+}
+
+/**
+ * NEW: 显示用于设置每页显示消息数的弹出窗口。
+ */
+async function showItemsPerPageSettingsPopup() {
+    if (!extension_settings[pluginName]) {
+        extension_settings[pluginName] = {};
     }
+
+    const currentValue = extension_settings[pluginName].itemsPerPage ?? 10;
+
+    const popupHtml = `
+        <div style="text-align: left; margin-bottom: 15px;">
+            <p>该设置决定了收藏夹每个页面显示的消息数量。</p>
+            <p>默认为 <b>10</b> 条。建议设置在 5 到 30 之间，过大的数值可能会影响加载性能。</p>
+            <hr>
+            <p>您可以通过长摁收藏夹左上角的头像，选择"修改显示消息数"来再次打开此设置。</p>
+        </div>
+        <div style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+            <label for="star_items_per_page_input">每页显示数量:</label>
+            <input type="number" id="star_items_per_page_input" class="text_pole" min="1" max="50" step="1" value="${currentValue}" style="width: 80px; text-align: center;">
+        </div>
+    `;
+
+    callGenericPopup(popupHtml, POPUP_TYPE.TEXT, '', {
+        title: '修改每页显示消息数',
+        okButton: '保存',
+        cancelButton: '取消',
+        wide: true,
+        onClosing: async (popup) => {
+            if (popup.result === POPUP_RESULT.AFFIRMATIVE) {
+                const inputElement = popup.dlg.querySelector('#star_items_per_page_input');
+                if (!inputElement) {
+                    toastr.error('发生内部错误：无法找到输入框。');
+                    return true;
+                }
+
+                const newValue = parseInt(inputElement.value, 10);
+
+                if (!isNaN(newValue) && newValue > 0) {
+                    if (newValue !== currentValue) {
+                        extension_settings[pluginName].itemsPerPage = newValue;
+                        saveSettingsDebounced();
+
+                        // 关键：同步更新全局变量
+                        itemsPerPage = newValue;
+
+                        console.log(`[${pluginName}] Items per page updated to: ${newValue}`);
+                        toastr.success(`每页显示数量已更新为: ${newValue}`);
+
+                        // 关键：刷新视图以立即应用更改
+                        if (modalElement && modalElement.style.display === 'block') {
+                            // 重置到第一页，避免因总页数减少而导致当前页码越界
+                            currentPage = 1;
+                            await renderFavoritesView(currentViewingChatFile);
+                        }
+                    }
+                } else {
+                    toastr.error('请输入一个有效的正整数。');
+                    return false; // 阻止弹窗关闭
+                }
+            }
+            return true; // 允许关闭
+        },
+    });
 }
 
 /**
@@ -573,45 +662,50 @@ function showUsageGuidePopup() {
         <div style="text-align: left; max-height: 70vh; overflow-y: auto; padding-right: 10px;">
             <h4><i class="fa-regular fa-star"></i> 基本操作</h4>
             <ul>
-				<li>如果觉得文字太繁琐可以直接滑动查看视频示例。</li>
                 <li><strong>收藏/取消收藏:</strong> 单击消息右上角的 <i class="fa-regular fa-star"></i> 图标。图标变为实心 <i class="fa-solid fa-star"></i> 代表收藏成功。</li>
                 <li><strong>编辑备注:</strong> 长按消息右上角的 <i class="fa-solid fa-star"></i> 图标，可以为这条收藏添加或修改备注，无需打开收藏面板。</li>
             </ul>
 
             <h4><i class="fa-solid fa-folder-open"></i> 收藏管理面板</h4>
             <ul>
-                <li><strong>打开面板:</strong> 点击输入框下方的 "收藏" 按钮。</li>
-                <li><strong>切换聊天历史:</strong> 点击左上角的头像可以打开/关闭左侧边栏。点击不同聊天可以在它们之间切换，查看各自的收藏。</li>
+                <li><strong>切换不同聊天:</strong> 点击左上角的头像可以打开/关闭左侧边栏。点击不同聊天可以在它们之间切换，查看各自的收藏。</li>
                 <li><strong>搜索:</strong> 点击右上角的 <i class="fa-solid fa-magnifying-glass"></i> 图标可展开搜索框，输入关键词检索收藏的消息内容或备注。点击 <i class="fa-solid fa-filter"></i> 图标可切换为仅搜索备注。</li>
-                <li><strong>翻页:</strong> 当收藏数量过多时，底部会出现翻页按钮。</li>
+                <li><strong>翻页:</strong> 当收藏数量过多时，底部会出现分页导航。您可以点击页码或左右箭头进行翻页。<strong>单击当前的页码，可以直接输入数字并按回车跳转到指定页面。</strong></li>
             </ul>
 
             <h4><i class="fa-solid fa-screwdriver-wrench"></i> 收藏项操作</h4>
             <p>在管理面板中，每条收藏的右下角都有一排操作按钮：</p>
             <ul>
-                <li><i class="fa-solid fa-eye" title="预览上下文"></i> <strong>预览上下文:</strong> 在主聊天界面临时加载这条消息附近的几条对话，让你快速回顾语境。点击页面底部的“结束预览”可返回正常聊天。</li>
-                <li><i class="fa-solid fa-expand" title="查看上下文"></i> <strong>查看上下文:</strong> 弹出一个小窗口，独立显示该消息的前一条、当前条和后一条消息，方便快速查看。</li>
-                <li><i class="fa-solid fa-pencil" title="编辑备注"></i> <strong>编辑备注:</strong> 与长按消息图标功能相同。</li>
+                <li><i class="fa-solid fa-eye" title="预览上下文"></i> <strong>预览上下文:</strong> 在主聊天界面临时加载此消息附近的对话。<strong>点击右侧的👁️的图标可以快速打开收藏面板，同时在收藏面板中点击另一条收藏的此按钮，可以快速切换预览内容。</strong>点击页面底部的“结束预览”可返回正常聊天。</li>
+                <li><i class="fa-solid fa-expand" title="查看上下文"></i> <strong>查看上下文:</strong> 弹出一个独立小窗口，显示该消息及前后几条消息，方便快速查看。</li>
+                <li><i class="fa-solid fa-pencil" title="编辑消息原文"></i> <strong>编辑消息原文:</strong> 直接修改这条消息的原始内容。<strong>此操作会永久改变聊天记录，请谨慎使用。</strong></li>
+                <li><i class="fa-solid fa-feather-pointed" title="编辑备注"></i> <strong>编辑备注:</strong> 与长按消息图标功能相同，为收藏添加或修改文字备注。</li>
                 <li><i class="fa-solid fa-trash" title="删除收藏"></i> <strong>删除收藏:</strong> 从收藏夹中移除此条目，不会删除原始消息。</li>
             </ul>
 
-            <h4><i class="fa-solid fa-circle-info"></i> 其他技巧</h4>
+            <h4><i class="fa-solid fa-circle-info"></i> 其他技巧与设置</h4>
             <ul>
-                <li><strong>主题切换:</strong> 在收藏面板中，长按左上角的角色/群组头像，可以打开菜单切换亮/暗主题。</li>
+                <li><strong>打开设置菜单:</strong> 在收藏面板中，长按左上角的角色/群组头像，可以打开设置菜单，在这里您可以：
+                    <ul style="margin-top: 5px;">
+                        <li>切换亮/暗主题</li>
+                        <li>修改上下文范围</li>
+                        <li>修改每页显示收藏数</li>
+                    </ul>
+                </li>
                 <li><strong>更新插件:</strong> 当 "收藏" 按钮旁出现红色的 "可更新" 按钮时，代表插件有新版本。点击它即可查看更新日志并更新。</li>
             </ul>
-            <h4><i class="fa-solid fa-circle-info"></i> 视频示例</h4>
+             <h4><i class="fa-solid fa-comments"></i> 反馈与帮助</h4>
             <ul>
-                <li><strong>主题切换:</strong> 在收藏面板中，长按左上角的角色/群组头像，可以打开菜单切换亮/暗主题。</li>
-                <li><strong>问题反馈:</strong> 如果有任何问题或建议可以直接在旅程检索“聊天收藏器”进入帖子进行反馈！</li>
+                <li>如果您有任何问题或建议，可以直接在“旅程”社区检索“聊天收藏器”进入帖子进行反馈！</li>
             </ul>
         </div>
     `;
     
-    // THE FIX IS HERE: Added 'cancelButton: false'
-    callGenericPopup(guideHtml, 'html', { 
-        okButton: '关闭', 
-        cancelButton: false 
+    // 修正了错误的参数类型和位置，并为弹窗添加了标题。
+    callGenericPopup(guideHtml, POPUP_TYPE.TEXT, '', {
+        title: '使用说明',
+        okButton: '关闭',
+        cancelButton: false
     });
 }
 
@@ -864,13 +958,48 @@ function closeFavoritesModal() {
 }
 
 function handleEscKey(event) {
-    if (event.key === 'Escape') {
-        const contextFrame = document.getElementById('context-messages-frame');
-        if (contextFrame && contextFrame.classList.contains('visible')) {
-            closeContextFrame();
+    if (event.key !== 'Escape') {
+        return; // 如果不是Escape键，直接退出
+    }
+
+    // --- 优先级 1: 关闭最顶层的“设置”小菜单 ---
+    // 这个菜单是覆盖在所有东西之上的，所以最先检查它。
+    const optionsMenuOverlay = document.getElementById('star-options-menu-overlay');
+    if (optionsMenuOverlay) {
+        // 这个菜单没有独立的关闭函数，最直接的方式是移除其DOM元素。
+        // 由于它是在 showAvatarLongPressMenu 中动态创建的，移除是安全的。
+        optionsMenuOverlay.remove();
+        return; // 处理完毕，停止后续检查
+    }
+
+    // --- 优先级 2: 关闭消息编辑器 ---
+    // 它的层级与上下文查看器相同，但我们先检查它。
+    const editorFrame = document.getElementById('star-editor-frame');
+    if (editorFrame && editorFrame.classList.contains('visible')) {
+        // 最健壮的关闭方式是触发它自己的关闭按钮的点击事件。
+        // 这样可以确保所有在 `closeModal` 函数中定义的清理逻辑（如动画、事件监听器移除）都能正确执行。
+        const closeBtn = editorFrame.querySelector('.star-editor-close-btn');
+        if (closeBtn) {
+            closeBtn.click();
         } else {
-            closeFavoritesModal();
+            // 如果找不到按钮，提供一个备用方案，直接移除元素。
+            editorFrame.remove();
         }
+        return; // 处理完毕，停止后续检查
+    }
+
+    // --- 优先级 3: 关闭上下文查看器 ---
+    const contextFrame = document.getElementById('context-messages-frame');
+    if (contextFrame && contextFrame.classList.contains('visible')) {
+        // 这个弹窗有专门的关闭函数，直接调用即可。
+        closeContextFrame();
+        return; // 处理完毕，停止后续检查
+    }
+
+    // --- 优先级 4: 关闭收藏夹主窗口 ---
+    // 如果以上所有弹窗都不存在，最后才关闭收藏夹主窗口。
+    if (modalElement && modalElement.style.display === 'block') {
+        closeFavoritesModal();
     }
 }
 
@@ -1022,16 +1151,15 @@ function renderMainPanel(viewingChatData) {
         <div class="favorites-list">
             ${favoritesListHtml}
         </div>
-        ${totalPages > 1 ? `
-            <div class="favorites-pagination">
-                <button class="menu_button pagination-prev" ${currentPage === 1 ? 'disabled' : ''}>上一页</button>
-                <span>${currentPage} / ${totalPages}</span>
-                <button class="menu_button pagination-next" ${currentPage === totalPages ? 'disabled' : ''}>下一页</button>
-            </div>
-        ` : ''}
+        <div class="favorites-pagination"></div>
     `;
-    
+
     mainPanel.innerHTML = mainPanelHtml;
+
+    // Call the new pagination renderer
+    if (totalFavorites > itemsPerPage) {
+        renderPagination(currentPage, totalPages);
+    }
 
   
     const favoritePreviews = mainPanel.querySelectorAll('.fav-preview');
@@ -1094,10 +1222,10 @@ function renderFavoriteItem(favItem, index, originalMessage = null) {
 
     const noteHtml = favItem.note ? `<div class="fav-note-content">${favItem.note}</div>` : '<div></div>';
 
-    // 【新逻辑】直接检查并生成推理内容的HTML
+    // 直接检查并生成推理内容的HTML
     let reasoningHtml = '';
     if (originalMessage && originalMessage.extra && originalMessage.extra.reasoning) {
-        // 【关键修复】使用SillyTavern核心的 messageFormatting 函数来正确渲染Markdown
+        // 使用SillyTavern核心的 messageFormatting 函数来正确渲染Markdown
         const reasoningContent = messageFormatting(originalMessage.extra.reasoning, null, false, false, null, {}, false);
 
         reasoningHtml = `
@@ -1222,6 +1350,77 @@ function showEditorModal(title, initialContent) {
     });
 }
 
+/**
+ * Renders the new advanced pagination component.
+ * @param {number} currentPage The current active page.
+ * @param {number} totalPages The total number of pages.
+ */
+function renderPagination(currentPage, totalPages) {
+    const paginationContainer = modalBodyElement.querySelector('.favorites-pagination');
+    if (!paginationContainer) return;
+
+    const getPageItem = (page, text = null, classes = []) => {
+        if (page === currentPage) classes.push('active');
+        if (!page) classes.push('disabled');
+        const textContent = text || page;
+        return `<div class="pagination-item ${classes.join(' ')}" data-page="${page}">${textContent}</div>`;
+    };
+
+    let html = '';
+
+    // Previous button
+    html += getPageItem(currentPage > 1 ? currentPage - 1 : null, '‹');
+
+    const pageNumbers = [];
+    // Always show page 1
+    pageNumbers.push(1);
+
+    // Ellipsis after page 1
+    if (currentPage > 4) {
+        pageNumbers.push('...');
+    }
+
+    // Pages around current page
+    for (let i = currentPage - 2; i <= currentPage + 2; i++) {
+        if (i > 1 && i < totalPages) {
+            pageNumbers.push(i);
+        }
+    }
+
+    // Ellipsis before last page
+    if (currentPage < totalPages - 3) {
+        pageNumbers.push('...');
+    }
+
+    // Always show last page if total > 1
+    if (totalPages > 1) {
+        pageNumbers.push(totalPages);
+    }
+
+    // Remove duplicates and render page numbers
+    [...new Set(pageNumbers)].forEach(num => {
+        if (num === '...') {
+            html += '<div class="pagination-item ellipsis">...</div>';
+        } else {
+            let itemHtml = getPageItem(num, null, []);
+            // Add the hidden input to the active item
+            if (num === currentPage) {
+                itemHtml = `
+                        <div class="pagination-item active" data-page="${num}">
+                            <span>${num}</span>
+                            <input type="number" class="pagination-input" value="${num}" min="1" max="${totalPages}">
+                        </div>`;
+            }
+            html += itemHtml;
+        }
+    });
+
+    // Next button
+    html += getPageItem(currentPage < totalPages ? currentPage + 1 : null, '›');
+
+    paginationContainer.innerHTML = html;
+}
+
 async function handleModalClick(event) {
     const target = event.target;
     const chatListItem = target.closest('.favorites-chat-list-item');
@@ -1234,22 +1433,52 @@ async function handleModalClick(event) {
         }
         return;
     }
-    const prevButton = target.closest('.pagination-prev');
-    if (prevButton && !prevButton.disabled) {
-        if (currentPage > 1) {
-            currentPage--;
-            await renderFavoritesView(currentViewingChatFile);
+    const paginationItem = target.closest('.pagination-item');
+    if (paginationItem) {
+        // Handle activating the input field on the current page item
+        if (paginationItem.classList.contains('active')) {
+            const span = paginationItem.querySelector('span');
+            const input = paginationItem.querySelector('.pagination-input');
+            if (span && input) {
+                span.style.display = 'none';
+                input.style.display = 'block';
+                input.focus();
+                input.select();
+
+                const handleJump = async () => {
+                    const newPage = parseInt(input.value, 10);
+                    const totalPages = Math.ceil((allChatsFavoritesData.find(c => String(c.fileName).replace('.jsonl', '') === currentViewingChatFile)?.favorites.length || 0) / itemsPerPage);
+
+                    // Revert UI
+                    input.style.display = 'none';
+                    span.style.display = 'inline';
+
+                    if (!isNaN(newPage) && newPage >= 1 && newPage <= totalPages && newPage !== currentPage) {
+                        currentPage = newPage;
+                        await renderFavoritesView(currentViewingChatFile);
+                    }
+                };
+
+                input.onblur = handleJump;
+                input.onkeydown = (e) => {
+                    if (e.key === 'Enter') {
+                        input.blur(); // Trigger the blur event to handle the jump
+                    } else if (e.key === 'Escape') {
+                        input.value = currentPage; // Reset value
+                        input.blur();
+                    }
+                };
+            }
+            return;
         }
-        return;
-    }
-    const nextButton = target.closest('.pagination-next');
-    if (nextButton && !nextButton.disabled) {
-        const viewingChatData = allChatsFavoritesData.find(c => String(c.fileName).replace('.jsonl','') === currentViewingChatFile);
-        const totalFavorites = viewingChatData?.favorites?.length || 0;
-        const totalPages = Math.max(1, Math.ceil(totalFavorites / itemsPerPage));
-        if (currentPage < totalPages) {
-            currentPage++;
-            await renderFavoritesView(currentViewingChatFile);
+
+        // Handle clicks on other page items
+        if (!paginationItem.classList.contains('disabled') && !paginationItem.classList.contains('ellipsis')) {
+            const page = parseInt(paginationItem.dataset.page, 10);
+            if (!isNaN(page) && page !== currentPage) {
+                currentPage = page;
+                await renderFavoritesView(currentViewingChatFile);
+            }
         }
         return;
     }
@@ -1694,7 +1923,6 @@ async function handleEditNote(favId, targetChatFile = null) {
     // 步骤2：弹出编辑框
     const newNote = await callGenericPopup('编辑收藏备注:', POPUP_TYPE.INPUT, currentNote, { cancelButton: false });
 
-    // **【关键修复 #1 - 逻辑门卫】**
     // 这个条件是整个修复的核心。它只允许在两种情况下失败：
     // a) 用户点击了取消 (newNote === null)
     // b) 用户点击了保存但内容没变 (newNote === currentNote)
@@ -1711,7 +1939,6 @@ async function handleEditNote(favId, targetChatFile = null) {
 
             let noteEl = favItemEl.querySelector('.fav-note-content');
             
-            // **【关键修复 #2 - UI更新逻辑重构】**
             // 彻底抛弃了 `if (newNote)` 这种模糊的判断方式。
 
             // Case A: 新备注有内容 (无论是新增还是修改)
@@ -1735,6 +1962,7 @@ async function handleEditNote(favId, targetChatFile = null) {
 }
 
 async function handleEditNoteFromChat(targetIcon) {
+    ensureCurrentChatIsCached(); 
     const messageElement = $(targetIcon).closest('.mes');
     if (!messageElement.length) return;
 
@@ -2030,6 +2258,7 @@ async function saveSpecificChatMetadata(chatFileNameNoExt, metadataToSave, messa
 }
 
 function handleFavoriteToggle(event) {
+    ensureCurrentChatIsCached(); 
     const target = $(event.currentTarget);
     if (!target.length) return;
     const messageElement = target.closest('.mes');
@@ -2190,7 +2419,7 @@ function showContextMessagesFrame(messages, highlightedIndex, chatContextForAvat
     if (titleElement) {
         titleElement.style.cursor = 'pointer';
         titleElement.title = '点击修改上下文范围';
-        // **【关键修复 2】直接调用设置弹窗，不再关闭当前上下文面板**
+        // **直接调用设置弹窗，不再关闭当前上下文面板**
         titleElement.addEventListener('click', async () => {
             await showContextRangeSettingsPopup();
             // 设置更新后，关闭当前窗口以便用户重新打开查看新的范围
@@ -2286,10 +2515,10 @@ function renderContextMessage(msgData, isHighlighted, chatContext) {
     const messageClass = isUser ? 'user-message' : 'ai-message';
     const highlightClass = isHighlighted ? 'highlighted-message' : '';
 
-    // 【新逻辑】直接检查并生成推理内容的HTML
+    // 直接检查并生成推理内容的HTML
     let reasoningHtml = '';
     if (message && message.extra && message.extra.reasoning) {
-        // 【关键修复】使用SillyTavern核心的 messageFormatting 函数来正确渲染Markdown
+        // 使用SillyTavern核心的 messageFormatting 函数来正确渲染Markdown
         const reasoningContent = messageFormatting(message.extra.reasoning, null, false, false, null, {}, false);
 
         reasoningHtml = `
@@ -2303,7 +2532,6 @@ function renderContextMessage(msgData, isHighlighted, chatContext) {
         `;
     }
 
-    // 【关键修改】移除 mes class，移除旧的UI骨架，插入我们自己的 reasoningHtml
     return `
             <div class="context-message-wrapper ${messageClass} ${highlightClass}" mesid="${originalIndex}">
                 <div class="context-message-avatar"><img src="${avatarImg}" alt="${senderName}" onerror="this.src='img/ai4.png'"></div>
